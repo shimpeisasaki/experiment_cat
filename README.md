@@ -17,4 +17,11 @@ Use `navigation_map:=/path/edited.yaml` to separate the Nav2 map from the unmodi
 
 Optionally pass `waypoints_file:=/path/route.yaml` (see `examples/waypoints.yaml`). Loading only displays numbered arrows in RViz. Arm navigation, then call `/waypoint_route/start` with `std_srvs/srv/Trigger`; use `/waypoint_route/cancel` to cancel. No automatic start.
 
-To save points placed in RViz, pass `waypoints_output:=/path/route.yaml`. Enter waypoint accumulation mode, place poses with Nav2 Goal, then call `/waypoint_route/save` (`std_srvs/srv/Trigger`) **before** starting waypoint following. Saving preserves order and yaw, replaces the specified file, and does not start motion. An already-running navigation session can use `ros2 run experiment_cat waypoint_route --ros-args -p waypoints_output:=/path/route.yaml` in another terminal.
+Create routes without a robot using the standalone editor:
+
+```bash
+ros2 launch experiment_cat waypoint_editor.launch.py map:=/path/map.yaml output:=/path/route.yaml
+ros2 service call /waypoint_editor/save std_srvs/srv/Trigger '{}'
+```
+
+Place points in order with RViz **2D Goal Pose**, dragging to set heading. Optional `input:=/path/route.yaml` loads an existing route. Services `/waypoint_editor/undo` and `/waypoint_editor/clear` undo the last point or clear the list. Only `/waypoint_editor/save` writes the file (replacing it if present). The editor starts only a map server, its lifecycle manager, RViz and the editor node; it requires no robot or localization. Navigation retains only loading and following saved routes; `waypoints_output` has been removed.
