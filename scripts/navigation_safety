@@ -199,23 +199,31 @@ class NavigationSafety(Node):
             return 'Motor offline'
         return None
 
-    def problem(self):
+    def problem(self, require_localization=True, require_sensor_data=True,
+                require_collision_monitor=True):
         issue = self.physical_problem()
         if issue:
             return issue
-        for topic, owner in (('/cmd_vel_safe', self.get_name()),
-                             ('/navigation_safety/mode', self.get_name()),
-                             ('/cmd_vel_collision', 'collision_monitor'),
-                             ('/cmd_vel_teleop', 'velocity_smoother_manual'),
-                             ('/ddsm115/rpm_cmd', 'two_wheels_robot_node')):
+        required_publishers = [
+            ('/cmd_vel_safe', self.get_name()),
+            ('/navigation_safety/mode', self.get_name()),
+            ('/cmd_vel_teleop', 'velocity_smoother_manual'),
+            ('/ddsm115/rpm_cmd', 'two_wheels_robot_node'),
+        ]
+        if require_collision_monitor:
+            required_publishers.append(('/cmd_vel_collision', 'collision_monitor'))
+        for topic, owner in required_publishers:
             publishers = self.get_publishers_info_by_topic(topic)
             if len(publishers) != 1 or publishers[0].node_name != owner:
                 return 'Unexpected/missing publisher: '+topic
+        if not require_sensor_data:
+            return None
         issue = self.sensor_problem()
-        if issue:
-            return issue
         ros_now = self.get_clock().now().nanoseconds*1e-9
-        for parent, child, tolerance in (('odom', 'base_link', .5), ('map', 'odom', 1.5)):
+        transforms = [('odom', 'base_link', .5)]
+        if require_localization:
+            transforms.append(('map', 'odom', 1.5))
+        for parent, child, tolerance in transforms:
             try:
                 tf = self.buffer.lookup_transform(parent, child, Time())
                 stamp = tf.header.stamp.sec + tf.header.stamp.nanosec*1e-9
@@ -226,7 +234,7 @@ class NavigationSafety(Node):
         return None
 
     def arm(self, _, response):
-        issue = self.problem()
+        issue = self.problem(require_localization=True)
         nav = self.raw['navigation']
         fresh_nonzero = (time.monotonic()-self.last_command['navigation'] < .5 and
                          (abs(nav.linear.x) > .001 or abs(nav.angular.z) > .001))
@@ -274,7 +282,10 @@ class NavigationSafety(Node):
             self.stop('Safety timer stalled')
         self.last_tick = now
         if self.mode == 2:
-            issue = self.problem()
+            manual = self.drive_source == 'manual'
+            # Manual drive remains available for recovery when localization,
+            # LiDAR, odometry, TF, or any Nav2 node is unavailable.
+            issue = self.physical_problem() if manual else self.problem()
             if issue:
                 self.stop(issue)
         if self.mode == 1 or self.pending_free is not None:
@@ -293,7 +304,9 @@ class NavigationSafety(Node):
             if self.pending_free is not None and now-self.pending_free > 3:
                 self.stop('Free rejected: wheels did not stop')
         if self.mode != 2:
-            healthy = (self.problem() is None and self.rpm is not None and
+            pending_manual = self.pending_drive == 'manual'
+            healthy = ((self.physical_problem() if pending_manual else self.problem()) is None and
+                       self.rpm is not None and
                        max(abs(v) for v in self.rpm) <= 1)
             self.ready_since = (self.ready_since or now) if healthy else None
             if (healthy and self.pending_drive is not None and

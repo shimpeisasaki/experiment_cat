@@ -21,6 +21,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare('experiment_cat')
+    base_share = FindPackageShare('cat_bringup')
     robot_config = LaunchConfiguration('robot_config')
     manual_config = LaunchConfiguration('manual_config')
     zed_config = LaunchConfiguration('zed_config')
@@ -38,7 +39,7 @@ def generate_launch_description():
         }], output='screen')
     return LaunchDescription([
         DeclareLaunchArgument('robot_config', default_value=PathJoinSubstitution([
-            share, 'config', 'robot_nav2.yaml'])),
+            base_share, 'config', 'robot_nav2.yaml'])),
         DeclareLaunchArgument(
             'left_usb_dev',
             default_value='/dev/serial/by-id/usb-WCH.CN_USB_Quad_Serial_BD9133ABCD-if06',
@@ -48,11 +49,11 @@ def generate_launch_description():
             default_value='/dev/serial/by-id/usb-WCH.CN_USB_Quad_Serial_BD9133ABCD-if04',
             description='CH3 serial device for right motor ID 1'),
         DeclareLaunchArgument('manual_config', default_value=PathJoinSubstitution([
-            share, 'config', 'manual_control.yaml'])),
+            base_share, 'config', 'manual_control.yaml'])),
         DeclareLaunchArgument('use_zed', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
         DeclareLaunchArgument('zed_config', default_value=PathJoinSubstitution([
-            share, 'config', 'zed_sensors.yaml'])),
+            base_share, 'config', 'zed_sensors.yaml'])),
         DeclareLaunchArgument('linear_speed', default_value='0.3'),
         DeclareLaunchArgument('angular_speed', default_value='0.0'),
         DeclareLaunchArgument('start_delay', default_value='3.0'),

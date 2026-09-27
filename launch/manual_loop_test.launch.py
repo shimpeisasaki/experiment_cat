@@ -15,6 +15,7 @@ from launch.substitutions import LaunchConfiguration
 
 def setup(context):
     share = Path(get_package_share_directory('experiment_cat'))
+    base_share = Path(get_package_share_directory('cat_bringup'))
     name = LaunchConfiguration('bag_name').perform(context)
     destination = Path(name or f'manual_loop_{datetime.now():%Y%m%d_%H%M%S}').expanduser().absolute()
     if destination.exists():
@@ -43,7 +44,7 @@ def setup(context):
                 'use_lidar': 'true',
                 'rviz': LaunchConfiguration('rviz'),
                 'serial_number': LaunchConfiguration('serial_number'),
-                'zed_config': str(share / 'config/zed_vio_test.yaml'),
+                'zed_config': str(base_share / 'config/zed_vio_test.yaml'),
             }.items()),
         LogInfo(msg=f'Recording manual loop to {destination}. Wait for VIO messages before driving. '
                     'Stop with B, then Ctrl+C to close the bag. VIO is a reference, not ground truth.'),

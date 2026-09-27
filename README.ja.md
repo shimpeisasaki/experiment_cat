@@ -269,7 +269,7 @@ ls -l /dev/rplidar
 
 手動操作は曲率制御なので、並進ゼロで旋回入力だけを入れてもその場旋回はしません。
 速度指令は`/cmd_vel_teleop`からNav2 velocity smootherを通り、`/cmd_vel`になります。
-調整先は[manual_control.yaml](config/manual_control.yaml)です。
+調整先は[manual_control.yaml](../cat_robot/cat_bringup/config/manual_control.yaml)です。
 フリーモードで手押しする場合も、車輪が接地して回転し、電源・通信が有効なら車輪odomを取得できます。
 
 ## 周回して軌跡と地図用データを記録
@@ -339,7 +339,7 @@ ros2 launch experiment_cat manual_loop_test.launch.py duration:=600
 ros2 launch experiment_cat manual_loop_test.launch.py bag_name:=indoor_loop_02 rviz:=false
 ```
 
-VIO用設定は[zed_vio_test.yaml](config/zed_vio_test.yaml)です。
+VIO用設定は[zed_vio_test.yaml](../cat_robot/cat_bringup/config/zed_vio_test.yaml)です。
 GEN_1 VIOとPERFORMANCE深度処理を使用し、深度画像・点群は配信しません。
 通常のbringupよりGPU負荷が増えます。VIOはEKFには融合せず、独立した出力として記録します。
 ただし同じIMUを共有するため、厳密に独立した正解データではありません。
@@ -500,7 +500,7 @@ ros2 launch experiment_cat motor_rpm_calibration.launch.py motor:=left direction
 除外点は障害物として使わず、空き領域としてクリアするための無限遠値にも変換しません。
 後方0.4 m以内の実際の障害物も除外されるため、後退時はその範囲を検出できません。
 
-設定は[scan_filter.yaml](config/scan_filter.yaml)です。`mounting_yaw`はURDFのLiDAR取付方向（現在π rad）と一致させてください。
+設定は[scan_filter.yaml](../cat_robot/cat_bringup/config/scan_filter.yaml)です。`mounting_yaw`はURDFのLiDAR取付方向（現在π rad）と一致させてください。
 TFを待たず単体起動でも同じ判定を行うため、取付角を設定値として使用しています。
 周回bagにはフィルタ後の`/scan`だけが入り、生データは保存しません。既存bagには後から適用されません。
 変更後はlaunchを再起動してください。
@@ -528,13 +528,17 @@ TFの担当は、EKFが`odom → base_link`、SLAMまたはemcl2が`map → odom
 センサ取付位置はrobot_state_publisher、ZED内部のIMU変換はZEDが配信します。
 ZED VIOは独自の`zed_odom`座標で出力し、競合するodom TFは配信しません。
 
+共通の機体・センサ設定（robot_nav2、manual_control、scan_filter、ekf、zed_sensors、zed_vio_test）は `../cat_robot/cat_bringup/config/` に集約しています。校正用launchも同じ設定を参照します。experiment_catの `config/` にはNav2・SLAM・自己位置推定の3ファイルだけを置きます。
+
 | 設定ファイル | 調整内容 |
 |---|---|
-| [robot_nav2.yaml](config/robot_nav2.yaml) | モーター、車輪寸法、通信・odom周期 |
-| [manual_control.yaml](config/manual_control.yaml) | 手動速度、曲率、不感帯、加減速 |
-| [ekf.yaml](config/ekf.yaml) | 車輪・IMU融合 |
-| [zed_sensors.yaml](config/zed_sensors.yaml) | 通常の軽量カメラ設定 |
-| [zed_vio_test.yaml](config/zed_vio_test.yaml) | 周回テスト用VIO設定 |
+| [robot_nav2.yaml](../cat_robot/cat_bringup/config/robot_nav2.yaml) | モーター、車輪寸法、通信・odom周期 |
+| [manual_control.yaml](../cat_robot/cat_bringup/config/manual_control.yaml) | 手動速度、曲率、不感帯、加減速 |
+| [scan_filter.yaml](../cat_robot/cat_bringup/config/scan_filter.yaml) | LiDARの近距離除外 |
+| [ekf.yaml](../cat_robot/cat_bringup/config/ekf.yaml) | 車輪・IMU融合 |
+| [zed_sensors.yaml](../cat_robot/cat_bringup/config/zed_sensors.yaml) | 通常の軽量カメラ設定 |
+| [zed_vio_test.yaml](../cat_robot/cat_bringup/config/zed_vio_test.yaml) | 周回テスト用VIO設定 |
+| [emcl2.yaml](config/emcl2.yaml) | 保存地図での自己位置推定 |
 | [slam_toolbox.yaml](config/slam_toolbox.yaml) | 地図作成 |
 | [nav2_params.yaml](config/nav2_params.yaml) | Nav2経路追従、コストマップ、車体外形 |
 | [experiment_robot.urdf.xacro](urdf/experiment_robot.urdf.xacro) | 車体・センサの形状と取付位置 |

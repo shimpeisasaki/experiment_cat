@@ -13,6 +13,8 @@ disable VIO/depth and select EKF for `/odom`. Stop and restart the launch to
 switch; no automatic failover is implemented. See the Japanese guide for
 frame conventions, failure handling, and exceptions for calibration launches.
 
+Shared hardware parameters live only in `../cat_robot/cat_bringup/config/`: robot, manual control, scan filter, EKF, and ZED settings. Calibration launches use these same files. This package keeps only `nav2_params.yaml`, `slam_toolbox.yaml`, and `emcl2.yaml` in `config/`.
+
 ## Visualize the measured robot
 
 Safety update: `navigation.launch.py` starts braked and requires
@@ -63,7 +65,7 @@ vertical sets forward/reverse speed while horizontal sets the curvature of the p
 therefore produces arcs rather than pivot turns. `X` selects normal drive (1.0 m/s), `A` selects high
 drive (6 km/h), `B` brakes, and `Y` selects freewheel. The joystick publishes `/cmd_vel_teleop`; the
 open-loop Nav2 velocity smoother publishes the final `/cmd_vel`. Tune these parameters in
-`config/manual_control.yaml`.
+`cat_bringup/config/manual_control.yaml`.
 
 ## RPLIDAR S1 standalone test
 
@@ -72,7 +74,7 @@ filtered data on `/scan`. Vehicle-relative front +/-100 degrees rejects ranges
 below 0.1 m; the remaining rear sector rejects ranges below 0.4 m. Rejected
 returns become NaN (unknown), not infinity (free-space clearing). Scan metadata
 is preserved. Distances are measured from the laser origin. Configure thresholds
-in `config/scan_filter.yaml`; its mounting yaw must match the URDF (currently pi).
+in `cat_bringup/config/scan_filter.yaml`; its mounting yaw must match the URDF (currently pi).
 This also hides real obstacles within the masked distances. Loop bags record
 only filtered `/scan`; old recordings are unchanged.
 
@@ -325,7 +327,7 @@ ros2 run tf2_ros tf2_echo base_link zed_camera_link
 ros2 run tf2_ros tf2_echo base_link zed_imu_link
 ```
 
-`config/ekf.yaml` runs a 30 Hz planar EKF: wheel forward velocity and yaw rate
+`cat_bringup/config/ekf.yaml` runs a 30 Hz planar EKF: wheel forward velocity and yaw rate
 from `/wheel/odom`, plus calibrated ZED gyro yaw rate via `/imu/ekf`. The fused
 output is `/odom`. Orientation, acceleration, VIO, depth and GNSS are not fused;
 the lightweight ZED profile keeps VIO/depth disabled.
@@ -443,5 +445,5 @@ the safety layer.
 `bringup.launch.py` and `odom_calibration.launch.py` include the shared
 `zed_sensors.launch.py`. Camera model, TF ownership and wrapper options should
 be edited there so both workflows stay consistent. Camera parameter values
-remain in `config/zed_sensors.yaml`; the public `serial_number` and `zed_config`
+remain in `cat_bringup/config/zed_sensors.yaml`; the public `serial_number` and `zed_config`
 arguments are forwarded by both launch files.

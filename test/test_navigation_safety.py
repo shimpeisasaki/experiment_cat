@@ -25,7 +25,7 @@ def subject():
              last_command={'navigation': -math.inf, 'manual': -math.inf},
              a=0, b=1, x=2, y=3, buttons=[0]*11,
              output=Mock(), lease=Mock(), status=Mock(),
-             get_logger=Mock(), problem=lambda: None, physical_problem=lambda: None,
+             get_logger=Mock(), problem=lambda **kwargs: None, physical_problem=lambda: None,
              active={}, cancel_futures={}, rpm=[0, 0], last_tick=now,
              cancel_goals=Mock(), header_ok=lambda *args: True,
              ids=[1, 2], fresh={k: now for k in ('joy', 'rpm', 'online')})
@@ -78,7 +78,7 @@ def test_scan_loss_brakes_and_recovery_requires_rearm():
     Safety.scan(obj, msg)
     obj.fresh['odom'] = time.monotonic()
     obj.mode = 2
-    obj.problem = obj.sensor_problem
+    obj.problem = lambda *args, **kwargs: Safety.sensor_problem(obj)
     obj.fresh['scan'] -= .6
     Safety.tick(obj)
     assert obj.mode == 0 and 'scan' in obj.reason
@@ -129,10 +129,10 @@ def test_free_times_out_when_spinning():
 
 def test_odom_or_tf_fault_latches_and_does_not_resume():
     obj = subject(); obj.mode = 2
-    obj.problem = lambda: 'odom stale'
+    obj.problem = lambda *args, **kwargs: 'odom stale'
     Safety.tick(obj)
     assert obj.mode == 0
-    obj.problem = lambda: None
+    obj.problem = lambda *args, **kwargs: None
     Safety.tick(obj)
     assert obj.mode == 0
 
@@ -161,6 +161,20 @@ def test_a_selects_navigation_and_x_selects_manual():
     Safety.joy(obj, msg)
     Safety.tick(obj)
     assert obj.mode == 2 and obj.drive_source == 'manual'
+
+
+def test_manual_mode_does_not_require_map_to_odom():
+    obj = subject()
+    obj.pending_drive = 'manual'
+    obj.problem = lambda **kwargs: 'Nav2, sensor, and TF failures must be ignored for manual drive'
+    obj.ready_since = time.monotonic() - 3
+    Safety.tick(obj)
+    assert obj.mode == 2 and obj.drive_source == 'manual'
+    # The same localization loss remains a stop condition for navigation.
+    obj.mode = 2
+    obj.drive_source = 'navigation'
+    Safety.tick(obj)
+    assert obj.mode == 0 and 'Nav2, sensor, and TF failures' in obj.reason
 
 
 def test_old_commands_never_replayed():

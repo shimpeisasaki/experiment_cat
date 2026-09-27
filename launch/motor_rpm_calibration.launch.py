@@ -14,7 +14,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def setup(context):
-    share = Path(get_package_share_directory('experiment_cat'))
     motor = LaunchConfiguration('motor').perform(context)
     direction = LaunchConfiguration('direction').perform(context)
     rpm = LaunchConfiguration('rpm').perform(context)
@@ -50,13 +49,13 @@ def setup(context):
 
 
 def generate_launch_description():
-    share = Path(get_package_share_directory('experiment_cat'))
+    base_share = Path(get_package_share_directory('cat_bringup'))
     return LaunchDescription([
         DeclareLaunchArgument('motor', default_value='right', choices=['left', 'right']),
         DeclareLaunchArgument('direction', default_value='forward', choices=['forward', 'reverse']),
         DeclareLaunchArgument('rpm', default_value='90'),
         DeclareLaunchArgument('duration', default_value='10.0'),
         DeclareLaunchArgument('bag_name', default_value=''),
-        DeclareLaunchArgument('robot_config', default_value=str(share / 'config/robot_nav2.yaml')),
+        DeclareLaunchArgument('robot_config', default_value=str(base_share / 'config/robot_nav2.yaml')),
         OpaqueFunction(function=setup),
     ])

@@ -104,8 +104,8 @@ controller_server:
       publish_trajectories: False
       min_vel_x: 0.0
       min_vel_y: 0.0
-      # Navigation target: 1.0 m/s. The downstream smoother is intentionally
-      # 10% higher (1.1 m/s) so it does not repeatedly clip nominal commands.
+      # Navigation target.  The downstream smoother retains 1.1 m/s of
+      # headroom so nominal 1.0 m/s commands are not clipped.
       max_vel_x: 1.00
       max_vel_y: 0.0
       max_vel_theta: 1.00
@@ -122,10 +122,10 @@ controller_server:
       decel_lim_theta: -0.80
       vx_samples: 20
       vy_samples: 1
-      vtheta_samples: 20
-      # Standard short local rollout; global replanning handles longer detours.
-      # A long constant-command rollout rejects useful turns in corridors.
-      sim_time: 1.7
+      vtheta_samples: 60
+      # At 1 m/s this evaluates a 3 m horizon, reducing late steering
+      # corrections on straight indoor runs.
+      sim_time: 3.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -135,13 +135,15 @@ controller_server:
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "ObstacleFootprint", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       # Check the rectangular body's swept outline, not only base_link.
-      ObstacleFootprint.scale: 0.05
-      BaseObstacle.scale: 0.50
-      GoalAlign.scale: 24.0
+      # Permit a local detour when a moving obstacle occupies the global path,
+      # without making small scan fluctuations dominate path tracking.
+      ObstacleFootprint.scale: 0.10
+      BaseObstacle.scale: 0.75
+      GoalAlign.scale: 16.0
       GoalAlign.forward_point_distance: 0.1
-      PathAlign.scale: 16.0
+      PathAlign.scale: 24.0
       PathAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
+      PathDist.scale: 12.0
       GoalDist.scale: 16.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
@@ -162,22 +164,25 @@ local_costmap:
       width: 6
       height: 6
       resolution: 0.05
-      # Provisional swept envelope, including a conservative caster allowance.
-      footprint: "[[0.075, 0.170], [0.075, -0.170], [-0.460, -0.170], [-0.460, 0.170]]"
+      # Measured body width is 0.30 m.  Keep collision checking at the real
+      # body outline so a 0.70 m corridor retains 0.20 m clearance per side.
+      footprint: "[[0.075, 0.150], [0.075, -0.150], [-0.460, -0.150], [-0.460, 0.150]]"
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Soft clearance preference, NOT a mandatory 0.8 m body clearance.
-        # Preserve a gradient away from walls and people instead of a flat
-        # zero-cost field immediately outside a narrow inflation band.
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.8
+        # Local dynamic-obstacle field.  It starts a detour before the
+        # collision monitor has to stop the robot, while retaining a valid
+        # center trajectory through a 0.70 m corridor.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.50
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
         observation_sources: scan
         scan:
           topic: /scan
+          # Height limit in the costmap frame; Humble defaults this source to 0.0 m.
+          max_obstacle_height: 0.8
           clearing: True
           marking: True
           data_type: "LaserScan"
@@ -185,7 +190,11 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 8.0
           obstacle_min_range: 0.05
-          observation_persistence: 0.0
+          # Keep sparse leg returns across several 10 Hz scan/costmap update
+          # cycles.  This is short enough for a walking person to clear soon
+          # after leaving the beam, but avoids a zero-duration observation
+          # buffer being empty at the next costmap update.
+          observation_persistence: 0.5
           expected_update_rate: 0.1
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -201,7 +210,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: False
-      footprint: "[[0.075, 0.170], [0.075, -0.170], [-0.460, -0.170], [-0.460, 0.170]]"
+      footprint: "[[0.075, 0.150], [0.075, -0.150], [-0.460, -0.150], [-0.460, 0.150]]"
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -211,6 +220,8 @@ global_costmap:
         observation_sources: scan
         scan:
           topic: /scan
+          # Height limit in the costmap frame; Humble defaults this source to 0.0 m.
+          max_obstacle_height: 0.8
           clearing: True
           marking: True
           data_type: "LaserScan"
@@ -218,16 +229,18 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 8.0
           obstacle_min_range: 0.05
-          observation_persistence: 0.0
+          observation_persistence: 0.5
           expected_update_rate: 0.1
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Soft cost field for Navfn to select a detour around live scan points.
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.8
+        # A broader global wall gradient makes Navfn prefer the corridor
+        # center.  It remains a soft cost; the measured footprint decides
+        # whether a 0.70 m corridor is physically traversable.
+        cost_scaling_factor: 4.0
+        inflation_radius: 0.55
       always_send_full_costmap: True
 
 map_server:
@@ -312,8 +325,7 @@ velocity_smoother:
     smoothing_frequency: 30.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    # Actuator guardrail: retain 10% linear headroom above the controller's
-    # 1.0 m/s target and use compatible acceleration limits for smooth motion.
+    # Keep the actuator guardrail unchanged during the 0.7 m/s DWB test.
     max_velocity: [1.1, 0.0, 1.1]
     min_velocity: [-0.26, 0.0, -1.1]
     max_accel: [0.6, 0.0, 1.0]
