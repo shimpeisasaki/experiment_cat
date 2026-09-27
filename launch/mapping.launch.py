@@ -1,8 +1,6 @@
 """Build a 2D map manually with the curvature joystick and RPLIDAR S1.
 
-This intentionally does not start Nav2 navigation servers.  The manual
-velocity smoother is therefore the sole publisher of /cmd_vel, while
-slam_toolbox is the sole publisher of map -> odom.
+cat_bringup owns manual control. slam_toolbox owns map -> odom.
 """
 
 from launch import LaunchDescription
@@ -21,20 +19,23 @@ def generate_launch_description():
     slam_share = FindPackageShare('slam_toolbox')
 
     return LaunchDescription([
+        DeclareLaunchArgument('use_gnss', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('gnss_serial', default_value=''),
+        DeclareLaunchArgument('serial_port', default_value='/dev/rplidar'),
         DeclareLaunchArgument('use_zed', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
         DeclareLaunchArgument('mapping_rviz', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
         DeclareLaunchArgument(
             'robot_config',
-            default_value=PathJoinSubstitution([base_share, 'config', 'robot_nav2.yaml'])),
+            default_value=PathJoinSubstitution([base_share, 'config', 'robot.yaml'])),
         DeclareLaunchArgument(
             'manual_config',
             default_value=PathJoinSubstitution([base_share, 'config', 'manual_control.yaml'])),
         DeclareLaunchArgument(
             'zed_config',
             default_value=PathJoinSubstitution([base_share, 'config', PythonExpression([
-                "'zed_vio_test.yaml' if '", LaunchConfiguration('odom_source'),
+                "'zed_vio.yaml' if '", LaunchConfiguration('odom_source'),
                 "' == 'vio' else 'zed_sensors.yaml'"])])),
         DeclareLaunchArgument(
             'slam_params_file',
@@ -48,6 +49,9 @@ def generate_launch_description():
                 base_share, 'launch', 'bringup.launch.py'])),
             launch_arguments={
                 'use_base': 'true',
+                'use_gnss': LaunchConfiguration('use_gnss'),
+                'gnss_serial': LaunchConfiguration('gnss_serial'),
+                'serial_port': LaunchConfiguration('serial_port'),
                 'odom_source': LaunchConfiguration('odom_source'),
                 'use_lidar': 'true',
                 'use_zed': LaunchConfiguration('use_zed'),

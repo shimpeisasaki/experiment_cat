@@ -192,8 +192,8 @@ local_costmap:
           obstacle_min_range: 0.05
           # Keep sparse leg returns across several 10 Hz scan/costmap update
           # cycles.  This is short enough for a walking person to clear soon
-          # after leaving the beam, but avoids a zero-duration observation
-          # buffer being empty at the next costmap update.
+          # after leaving the beam. A zero-duration buffer retains only the
+          # latest observation; this setting retains several recent scans.
           observation_persistence: 0.5
           expected_update_rate: 0.1
       static_layer:
@@ -325,7 +325,7 @@ velocity_smoother:
     smoothing_frequency: 30.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    # Keep the actuator guardrail unchanged during the 0.7 m/s DWB test.
+    # Retain headroom above the 1.0 m/s controller target.
     max_velocity: [1.1, 0.0, 1.1]
     min_velocity: [-0.26, 0.0, -1.1]
     max_accel: [0.6, 0.0, 1.0]
@@ -335,8 +335,8 @@ velocity_smoother:
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
 
-# Independent last-resort protection after Nav2's planner/controller. DWB uses
-# both costmaps to route around obstacles; this node stops if a frontal obstacle
+# Independent last-resort protection after Nav2's planner/controller.
+# Global planning and local DWB use their costmaps; this node stops if an obstacle
 # is still inside the near-field protection zone.
 collision_monitor:
   ros__parameters:
@@ -344,7 +344,7 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "/cmd_vel"
-    cmd_vel_out_topic: "/cmd_vel_collision"
+    cmd_vel_out_topic: "/cmd_vel_external"
     transform_tolerance: 0.2
     source_timeout: 0.3
     base_shift_correction: True
