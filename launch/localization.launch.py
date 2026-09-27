@@ -14,14 +14,15 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('localization_params_file', default_value=PathJoinSubstitution([
             FindPackageShare('experiment_cat'), 'config', 'emcl2.yaml'])),
-        Node(package='nav2_map_server', executable='map_server', name='map_server',
-             parameters=[clock, {'yaml_filename': LaunchConfiguration('map')}], output='screen'),
+        Node(package='nav2_map_server', executable='map_server', name='localization_map_server',
+             parameters=[clock, {'yaml_filename': LaunchConfiguration('map')}],
+             remappings=[('map', '/localization/map')], output='screen'),
         Node(package='emcl2', executable='emcl2_node', name='emcl2',
              parameters=[LaunchConfiguration('localization_params_file'), clock],
-             output='screen'),
+             remappings=[('map', '/localization/map')], output='screen'),
         # emcl2 is an ordinary node; only map_server needs lifecycle activation.
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='lifecycle_manager_localization',
-             parameters=[clock, {'autostart': True, 'node_names': ['map_server']}],
+             parameters=[clock, {'autostart': True, 'node_names': ['localization_map_server']}],
              output='screen'),
     ])

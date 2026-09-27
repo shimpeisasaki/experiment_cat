@@ -77,3 +77,51 @@ local/global両方の `obstacle_layer.scan.max_obstacle_height` は `0.8 m`。Hu
 旧experiment_catの機体用launch、URDF、重複スクリプト、校正・記録専用launch、costmap表示デバッグは削除しました。保守GUIは `ros2 launch ddsm115_controller motor_test_gui.launch.py` で利用できます。停止・許可サービスは `/navigation_safety/*` から `/base_safety/*` に移動しました。
 
 旧installに削除済みファイルが残る場合は対象パッケージのbuild/installを作り直してください。保存地図・bagはリポジトリ外で管理します。
+
+## 自己位置推定とナビゲーションの地図を分ける
+
+元の地図を自己位置推定に使い、通行禁止領域などを書き込んだコピーをNav2に使えます。
+
+```bash
+ros2 launch experiment_cat navigation.launch.py \
+  slam:=false \
+  map:=/home/uedalab/ros2_ws/map/indoor_loop_map_vio.yaml \
+  navigation_map:=/home/uedalab/ros2_ws/map/indoor_loop_navigation.yaml
+```
+
+- `map`（または`localization_map`）: emcl2用。`/localization/map`として配信。
+- `navigation_map`: Nav2用。`/map`として配信し、local/global両costmapが参照。
+- `navigation_map`省略: 自己位置推定と同じファイルを使用。従来の起動コマンドも利用可能。
+- 両地図・waypointは同じ`map`座標系で整合させてください。通常は元地図の画像とYAMLをコピーし、解像度・原点を維持して編集します。コピーしたYAMLの`image`も編集後画像に変更してください。
+
+RVizは既定でナビ用地図を表示します。比較する場合は「Localization map」を有効にします。
+`slam:=true`でも`navigation_map`を指定できます。この場合、ライブSLAMの地図は`/localization/map`、Nav2は指定済みの地図を使います。SLAM座標と指定地図の座標の整合は別途必要です。未指定なら従来どおりライブSLAMの`/map`を使います。
+
+## waypointリスト
+
+任意のYAMLファイルを `waypoints_file:=/絶対パス/route.yaml` で追加指定します。省略時はwaypointノードを起動しません。
+
+```yaml
+frame_id: map
+waypoints:
+  - {x: 0.0, y: 0.0, yaw: 0.0}
+  - {x: 1.0, y: 0.0, yaw: 1.5707963267948966}
+```
+
+x/yはメートル、yawはラジアン（省略時0）。配列順に巡回します。[examples/waypoints.yaml](examples/waypoints.yaml)は形式の例で、実際の到達可能な座標へ書き換えてください。
+
+```bash
+ros2 launch experiment_cat navigation.launch.py \
+  slam:=false map:=/path/localization.yaml navigation_map:=/path/navigation.yaml \
+  waypoints_file:=/path/route.yaml
+```
+
+読込時はRVizの「Waypoint route」に番号・向きだけを表示し、走行は開始しません。自己位置を設定し走行を許可してから開始します。
+
+```bash
+ros2 service call /base_safety/arm std_srvs/srv/Trigger '{}'
+ros2 service call /waypoint_route/start std_srvs/srv/Trigger '{}'
+ros2 service call /waypoint_route/cancel std_srvs/srv/Trigger '{}'
+```
+
+進捗・完了・未到達点は `/waypoint_route/status`。再度startすると先頭から巡回します。Nav2が未準備、走行未許可、既に巡回中の場合は開始を拒否します。Bボタン・`/base_safety/brake`は従来どおり停止とゴール取消を行います。巡回はNav2のFollowWaypointsを使うため、待機時間・到達失敗時の継続は `nav2_params.yaml` の `waypoint_follower` 設定に従います。
