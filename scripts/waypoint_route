@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Load a map-frame waypoint list; run it only after an explicit start request."""
 import math
+import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -42,7 +44,11 @@ def load_waypoints(path):
 class WaypointRoute(Node):
     def __init__(self):
         super().__init__('waypoint_route')
-        self.points = load_waypoints(self.declare_parameter('waypoints_file', '').value)
+        source = self.declare_parameter('waypoints_file', '').value
+        self.points = load_waypoints(source) if source else []
+        self.declare_parameter('waypoints_output', '')
+        self.rviz_points = []
+        self.rviz_error = 'No RViz waypoints received yet'
         self.client = ActionClient(self, FollowWaypoints, '/follow_waypoints')
         self.goal = None
         self.pending = False
@@ -50,13 +56,76 @@ class WaypointRoute(Node):
         self.base_mode = ''
         self.base_time = -math.inf
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.markers = self.create_publisher(MarkerArray, '/waypoints', qos)
+        self.markers = self.create_publisher(MarkerArray, '~/markers', qos)
         self.status = self.create_publisher(String, '~/status', qos)
         self.create_subscription(String, '/base_safety/status', self.base_status, qos)
         self.create_service(Trigger, '~/start', self.start)
         self.create_service(Trigger, '~/cancel', self.cancel)
+        self.create_subscription(MarkerArray, '/waypoints', self.capture_rviz, qos)
+        self.create_service(Trigger, '~/save', self.save)
         self.publish_markers()
-        self.report(f'Loaded {len(self.points)} waypoints; waiting for ~/start')
+        self.report(f'Loaded {len(self.points)} waypoints; waiting for ~/start' if self.points else
+                    'Recording RViz waypoints; call ~/save after placing all points')
+
+    def capture_rviz(self, msg):
+        # Humble Nav2 publishes a complete snapshot: arrow/sphere/label per point.
+        # Native markers have an empty namespace; our loaded route has its own topic.
+        if any(marker.ns for marker in msg.markers):
+            return
+        try:
+            arrows = sorted((m for m in msg.markers if m.type == Marker.ARROW and
+                             m.action == Marker.ADD), key=lambda m: m.id)
+            points = []
+            for marker in arrows:
+                p, q = marker.pose.position, marker.pose.orientation
+                if marker.header.frame_id != 'map':
+                    raise ValueError('Set the RViz Fixed Frame to map before placing waypoints')
+                if not all(math.isfinite(v) for v in (p.x, p.y, p.z, q.x, q.y, q.z, q.w)):
+                    raise ValueError('RViz waypoint contains non-finite coordinates')
+                norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+                if not .9 < norm < 1.1:
+                    raise ValueError('RViz waypoint has an invalid orientation')
+                x, y, z, w = q.x/norm, q.y/norm, q.z/norm, q.w/norm
+                yaw = math.atan2(2*(w*z+x*y), 1-2*(y*y+z*z))
+                points.append((p.x, p.y, yaw))
+            self.rviz_points = points
+            self.rviz_error = '' if points else 'RViz waypoint list is empty'
+        except ValueError as error:
+            self.rviz_points = []
+            self.rviz_error = str(error)
+            self.get_logger().warning(self.rviz_error)
+
+    def save(self, _, response):
+        output = self.get_parameter('waypoints_output').value
+        if not output:
+            response.message = 'Set waypoints_output to the destination YAML path first'
+            return response
+        if not self.rviz_points:
+            response.message = self.rviz_error
+            return response
+        target = Path(output).expanduser().resolve()
+        temporary = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = {'frame_id': 'map', 'waypoints': [
+                {'x': float(x), 'y': float(y), 'yaw': float(yaw)}
+                for x, y, yaw in self.rviz_points]}
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                             dir=target.parent, delete=False) as stream:
+                temporary = stream.name
+                yaml.safe_dump(data, stream, sort_keys=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            response.success = True
+            response.message = f'Saved {len(self.rviz_points)} waypoints to {target}'
+            self.report(response.message)
+        except (OSError, ValueError) as error:
+            response.message = f'Save failed: {error}'
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
+        return response
 
     def report(self, text):
         self.status.publish(String(data=text))
@@ -104,7 +173,9 @@ class WaypointRoute(Node):
         self.markers.publish(array)
 
     def start(self, _, response):
-        if self.pending or self.goal is not None:
+        if not self.points:
+            response.message = 'No YAML route loaded; use RViz Start Waypoint Following or load a saved file'
+        elif self.pending or self.goal is not None:
             response.message = 'A route is already active or canceling'
         elif time.monotonic()-self.base_time > .3 or not self.base_mode.startswith('2: NAVIGATION'):
             response.message = 'Arm navigation via /base_safety/arm first'

@@ -62,14 +62,17 @@ def map_nodes(context):
 
 
 def waypoint_node(context):
-    path = LaunchConfiguration('waypoints_file').perform(context)
-    if not path:
+    source = LaunchConfiguration('waypoints_file').perform(context)
+    output = LaunchConfiguration('waypoints_output').perform(context)
+    if not source and not output:
         return []
-    path = Path(path).expanduser().resolve()
-    if not path.is_file():
-        raise ValueError(f'Waypoint YAML does not exist: {path}')
+    if source:
+        path = Path(source).expanduser().resolve()
+        if not path.is_file():
+            raise ValueError(f'Waypoint YAML does not exist: {path}')
+        source = str(path)
     return [Node(package='experiment_cat', executable='waypoint_route', name='waypoint_route',
-                 parameters=[{'waypoints_file': str(path)}], output='screen')]
+                 parameters=[{'waypoints_file': source, 'waypoints_output': output}], output='screen')]
 
 
 def generate_launch_description():
@@ -100,6 +103,8 @@ def generate_launch_description():
                               description='Written map for Nav2; defaults to localization map or live SLAM.'),
         DeclareLaunchArgument('waypoints_file', default_value='',
                               description='Optional waypoint YAML; load/display only until ~/start is called.'),
+        DeclareLaunchArgument('waypoints_output', default_value='',
+                              description='Destination YAML for RViz waypoints; write only on ~/save.'),
         DeclareLaunchArgument('serial_port', default_value='/dev/rplidar'),
         DeclareLaunchArgument('localization_params_file', default_value=PathJoinSubstitution([
             share, 'config', 'emcl2.yaml'])),

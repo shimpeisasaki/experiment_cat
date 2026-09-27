@@ -16,3 +16,5 @@ The navigation guard monitors sensor and localization health. The robot's base_s
 Use `navigation_map:=/path/edited.yaml` to separate the Nav2 map from the unmodified `map:=...` (or `localization_map:=...`) used by emcl2. The topics are `/map` and `/localization/map`, respectively. Both maps must use consistent coordinates.
 
 Optionally pass `waypoints_file:=/path/route.yaml` (see `examples/waypoints.yaml`). Loading only displays numbered arrows in RViz. Arm navigation, then call `/waypoint_route/start` with `std_srvs/srv/Trigger`; use `/waypoint_route/cancel` to cancel. No automatic start.
+
+To save points placed in RViz, pass `waypoints_output:=/path/route.yaml`. Enter waypoint accumulation mode, place poses with Nav2 Goal, then call `/waypoint_route/save` (`std_srvs/srv/Trigger`) **before** starting waypoint following. Saving preserves order and yaw, replaces the specified file, and does not start motion. An already-running navigation session can use `ros2 run experiment_cat waypoint_route --ros-args -p waypoints_output:=/path/route.yaml` in another terminal.

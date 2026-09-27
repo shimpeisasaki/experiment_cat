@@ -99,7 +99,7 @@ RVizは既定でナビ用地図を表示します。比較する場合は「Loca
 
 ## waypointリスト
 
-任意のYAMLファイルを `waypoints_file:=/絶対パス/route.yaml` で追加指定します。省略時はwaypointノードを起動しません。
+任意のYAMLファイルを `waypoints_file:=/絶対パス/route.yaml` で追加指定します。`waypoints_file`と`waypoints_output`の両方を省略した場合はwaypointノードを起動しません。
 
 ```yaml
 frame_id: map
@@ -116,7 +116,7 @@ ros2 launch experiment_cat navigation.launch.py \
   waypoints_file:=/path/route.yaml
 ```
 
-読込時はRVizの「Waypoint route」に番号・向きだけを表示し、走行は開始しません。自己位置を設定し走行を許可してから開始します。
+読込時はRVizの「Loaded waypoint route」に番号・向きだけを表示し、走行は開始しません。自己位置を設定し走行を許可してから開始します。
 
 ```bash
 ros2 service call /base_safety/arm std_srvs/srv/Trigger '{}'
@@ -125,3 +125,34 @@ ros2 service call /waypoint_route/cancel std_srvs/srv/Trigger '{}'
 ```
 
 進捗・完了・未到達点は `/waypoint_route/status`。再度startすると先頭から巡回します。Nav2が未準備、走行未許可、既に巡回中の場合は開始を拒否します。Bボタン・`/base_safety/brake`は従来どおり停止とゴール取消を行います。巡回はNav2のFollowWaypointsを使うため、待機時間・到達失敗時の継続は `nav2_params.yaml` の `waypoint_follower` 設定に従います。
+
+## RVizで置いたwaypointをYAMLに保存
+
+保存先を指定して起動します。読込用の`waypoints_file`は不要です。
+
+```bash
+ros2 launch experiment_cat navigation.launch.py \
+  slam:=false map:=/home/uedalab/ros2_ws/map/indoor_loop_map_vio.yaml \
+  waypoints_output:=/home/uedalab/ros2_ws/map/route.yaml
+```
+
+1. RVizのFixed Frameを`map`にし、Navigation 2パネルの「Waypoint / Nav Through Poses Mode」を押します。
+2. 「Nav2 Goal」で順番に地点と向きを配置します。
+3. **「Start Waypoint Following」を押す前に**保存します。保存だけなら走行許可は不要です。
+
+```bash
+ros2 service call /waypoint_route/save std_srvs/srv/Trigger '{}'
+```
+
+成功時は保存した地点数と絶対パスが返ります。矢印の順序・向きが`x, y, yaw`として保存され、同名ファイルは上書きされます。保存だけでは走行を開始しません。
+次回は`waypoints_file:=/home/uedalab/ros2_ws/map/route.yaml`で読み込めます。
+
+既にNav2を起動している場合、別端末で保存用ノードだけを追加できます（同名ノードが未起動の場合）。
+
+```bash
+ros2 run experiment_cat waypoint_route --ros-args \
+  -p waypoints_output:=/home/uedalab/ros2_ws/map/route.yaml
+```
+
+保存先の変更は`ros2 param set /waypoint_route waypoints_output /絶対パス/別ルート.yaml`。
+RVizにある最新リストを保存する機能で、以前の巡回や削除した地点を復元するものではありません。表示は「RViz waypoints」と「Loaded waypoint route」に分けています。
