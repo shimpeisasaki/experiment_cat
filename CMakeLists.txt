@@ -3,7 +3,7 @@ project(experiment_cat)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY config launch rviz examples
+install(DIRECTORY config launch rviz map
   DESTINATION share/${PROJECT_NAME}
 )
 

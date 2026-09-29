@@ -38,15 +38,16 @@ def setup(context):
 
 
 def generate_launch_description():
+    share = FindPackageShare('experiment_cat')
     return LaunchDescription([
         DeclareLaunchArgument('map',
-                              default_value='/home/uedalab/ros2_ws/map/19F_260928_Nav_2.yaml',
+                              default_value=PathJoinSubstitution([share, 'map', '19F_260928_Nav.yaml']),
                               description='Navigation map YAML to display'),
         DeclareLaunchArgument('output',
-                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
+                              default_value=PathJoinSubstitution([share, 'map', '19F_waypoint.yaml']),
                               description='Route YAML written when ~/save is called'),
         DeclareLaunchArgument('input',
-                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
+                              default_value=PathJoinSubstitution([share, 'map', '19F_waypoint.yaml']),
                               description='Existing route to edit'),
         OpaqueFunction(function=setup),
     ])

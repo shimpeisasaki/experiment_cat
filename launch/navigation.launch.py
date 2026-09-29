@@ -95,15 +95,15 @@ def generate_launch_description():
         DeclareLaunchArgument('navigation_rviz', default_value=LaunchConfiguration('rviz'),
                               choices=['true', 'false']),
         DeclareLaunchArgument(
-            'map', default_value='/home/uedalab/ros2_ws/map/19F_260928.yaml',
+            'map', default_value=PathJoinSubstitution([share, 'map', '19F_260928.yaml']),
             description='Localization map YAML (legacy alias). Required when slam:=false.'),
         DeclareLaunchArgument('localization_map', default_value=LaunchConfiguration('map'),
                               description='Unmodified map used only by emcl2.'),
         DeclareLaunchArgument('navigation_map',
-                              default_value='/home/uedalab/ros2_ws/map/19F_260928_Nav_2.yaml',
+                              default_value=PathJoinSubstitution([share, 'map', '19F_260928_Nav.yaml']),
                               description='Written map for Nav2; defaults to localization map or live SLAM.'),
         DeclareLaunchArgument('waypoints_file',
-                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
+                              default_value=PathJoinSubstitution([share, 'map', '19F_waypoint.yaml']),
                               description='Optional waypoint YAML; load/display only until ~/start is called.'),
         DeclareLaunchArgument('serial_port', default_value='/dev/rplidar'),
         DeclareLaunchArgument('localization_params_file', default_value=PathJoinSubstitution([
