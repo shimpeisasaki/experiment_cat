@@ -1,7 +1,0 @@
-# Example only: replace with reachable coordinates in your map.
-# Units: x/y in metres, yaw in radians. List order is travel order.
-frame_id: map
-waypoints:
-  - {x: 0.0, y: 0.0, yaw: 0.0}
-  - {x: 1.0, y: 0.0, yaw: 1.5707963267948966}
-  - {x: 1.0, y: 1.0, yaw: 3.141592653589793}

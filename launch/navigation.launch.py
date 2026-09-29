@@ -1,7 +1,7 @@
 """Complete LiDAR-based Nav2 bringup for the experiment robot.
 
-With ``slam:=true`` (the default), slam_toolbox publishes map -> odom while
-building a map. With ``slam:=false``, pass a saved map YAML path and Nav2
+With ``slam:=true``, slam_toolbox publishes map -> odom while
+building a map. By default, ``slam:=false`` uses saved map YAML files and Nav2
 starts separate localization/navigation map servers plus emcl2. In both cases this launch owns the base,
 robot description, and RPLIDAR S1; do not start those nodes separately.
 """
@@ -81,7 +81,7 @@ def generate_launch_description():
     manual_config = LaunchConfiguration('manual_config')
 
     return LaunchDescription([
-        DeclareLaunchArgument('slam', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('slam', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('use_gnss', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('gnss_serial', default_value=''),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
@@ -91,14 +91,19 @@ def generate_launch_description():
             base_share, 'config', PythonExpression(["'zed_vio.yaml' if '",
                 LaunchConfiguration('odom_source'), "' == 'vio' else 'zed_sensors.yaml'"])])),
         DeclareLaunchArgument('rviz', default_value='true', choices=['true', 'false']),
+        # cat_bringup receives rviz:=false; preserve the navigation display choice.
+        DeclareLaunchArgument('navigation_rviz', default_value=LaunchConfiguration('rviz'),
+                              choices=['true', 'false']),
         DeclareLaunchArgument(
-            'map', default_value='',
+            'map', default_value='/home/uedalab/ros2_ws/map/19F_260928.yaml',
             description='Localization map YAML (legacy alias). Required when slam:=false.'),
         DeclareLaunchArgument('localization_map', default_value=LaunchConfiguration('map'),
                               description='Unmodified map used only by emcl2.'),
-        DeclareLaunchArgument('navigation_map', default_value='',
+        DeclareLaunchArgument('navigation_map',
+                              default_value='/home/uedalab/ros2_ws/map/19F_260928_Nav_2.yaml',
                               description='Written map for Nav2; defaults to localization map or live SLAM.'),
-        DeclareLaunchArgument('waypoints_file', default_value='',
+        DeclareLaunchArgument('waypoints_file',
+                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
                               description='Optional waypoint YAML; load/display only until ~/start is called.'),
         DeclareLaunchArgument('serial_port', default_value='/dev/rplidar'),
         DeclareLaunchArgument('localization_params_file', default_value=PathJoinSubstitution([
@@ -144,7 +149,7 @@ def generate_launch_description():
             package='rviz2', executable='rviz2', name='nav2_rviz', output='screen',
             arguments=['-d', PathJoinSubstitution([
                 share, 'rviz', 'navigation.rviz'])],
-            condition=IfCondition(LaunchConfiguration('rviz'))),
+            condition=IfCondition(LaunchConfiguration('navigation_rviz'))),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([

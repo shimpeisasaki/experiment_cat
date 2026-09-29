@@ -39,8 +39,14 @@ def setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('map', description='Map YAML to display'),
-        DeclareLaunchArgument('output', description='Route YAML written when ~/save is called'),
-        DeclareLaunchArgument('input', default_value='', description='Optional existing route to edit'),
+        DeclareLaunchArgument('map',
+                              default_value='/home/uedalab/ros2_ws/map/19F_260928_Nav_2.yaml',
+                              description='Navigation map YAML to display'),
+        DeclareLaunchArgument('output',
+                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
+                              description='Route YAML written when ~/save is called'),
+        DeclareLaunchArgument('input',
+                              default_value='/home/uedalab/ros2_ws/map/19F_waypoint.yaml',
+                              description='Existing route to edit'),
         OpaqueFunction(function=setup),
     ])

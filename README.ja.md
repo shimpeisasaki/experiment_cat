@@ -87,23 +87,20 @@ local/global両方の `obstacle_layer.scan.max_obstacle_height` は `0.8 m`。Hu
 元の地図を自己位置推定に使い、通行禁止領域などを書き込んだコピーをNav2に使えます。
 
 ```bash
-ros2 launch experiment_cat navigation.launch.py \
-  slam:=false \
-  map:=/home/uedalab/ros2_ws/map/indoor_loop_map_vio.yaml \
-  navigation_map:=/home/uedalab/ros2_ws/map/indoor_loop_navigation.yaml
+ros2 launch experiment_cat navigation.launch.py
 ```
 
-- `map`（または`localization_map`）: emcl2用。`/localization/map`として配信。
-- `navigation_map`: Nav2用。`/map`として配信し、local/global両costmapが参照。
-- `navigation_map`省略: 自己位置推定と同じファイルを使用。従来の起動コマンドも利用可能。
-- 両地図・waypointは同じ`map`座標系で整合させてください。通常は元地図の画像とYAMLをコピーし、解像度・原点を維持して編集します。コピーしたYAMLの`image`も編集後画像に変更してください。
+- 既定の `map`: `/home/uedalab/ros2_ws/map/19F_260928.yaml`。自己位置推定用の元地図を`/localization/map`として配信。
+- 既定の `navigation_map`: `/home/uedalab/ros2_ws/map/19F_260928_Nav_2.yaml`。編集済み画像`19F_260928_Nav_2.pgm`を`/map`として配信し、local/global両costmapが参照。
+- `slam`の既定値は`false`。通常は引数なしでこの2枚の保存地図を使います。SLAMを行う場合は`slam:=true`を指定してください。
+- 両地図・waypointは同じ`map`座標系で整合させます。Nav2地図YAMLは画像`19F_260928_Nav_2.pgm`を参照し、解像度・原点は元地図と揃えています。
 
 RVizは既定でナビ用地図を表示します。比較する場合は「Localization map」を有効にします。
-`slam:=true`でも`navigation_map`を指定できます。この場合、ライブSLAMの地図は`/localization/map`、Nav2は指定済みの地図を使います。SLAM座標と指定地図の座標の整合は別途必要です。未指定なら従来どおりライブSLAMの`/map`を使います。
+`slam:=true`を指定するとライブSLAMを開始し、SLAMの地図は`/localization/map`に配信されます。既定のNav2地図は保存済みの編集地図です。SLAM中の地図をNav2にも使う場合は`navigation_map:=`を空にしてください。
 
 ## waypointリスト
 
-任意のYAMLファイルを `waypoints_file:=/絶対パス/route.yaml` で追加指定します。`waypoints_file`を省略した場合はwaypointノードを起動しません。
+既定では `/home/uedalab/ros2_ws/map/19F_waypoint.yaml` を読み込みます。別のYAMLに切り替える場合は `waypoints_file:=/絶対パス/route.yaml` を指定してください。
 
 ```yaml
 frame_id: map
@@ -112,12 +109,10 @@ waypoints:
   - {x: 1.0, y: 0.0, yaw: 1.5707963267948966}
 ```
 
-x/yはメートル、yawはラジアン（省略時0）。配列順に巡回します。[examples/waypoints.yaml](examples/waypoints.yaml)は形式の例で、実際の到達可能な座標へ書き換えてください。
+x/yはメートル、yawはラジアン（省略時0）。配列順に巡回します。
 
 ```bash
-ros2 launch experiment_cat navigation.launch.py \
-  slam:=false map:=/path/localization.yaml navigation_map:=/path/navigation.yaml \
-  waypoints_file:=/path/route.yaml
+ros2 launch experiment_cat navigation.launch.py
 ```
 
 読込時はRVizの「Loaded waypoint route」に番号・向きだけを表示し、走行は開始しません。自己位置を設定し走行を許可してから開始します。
@@ -132,12 +127,10 @@ ros2 service call /waypoint_route/cancel std_srvs/srv/Trigger '{}'
 
 ## ロボットなしでwaypointを作成・保存
 
-地図を指定して専用エディタを起動します。機体・自己位置推定・Nav2の走行サーバーは起動しません。
+専用エディタは既定でナビ用地図`19F_260928_Nav_2.yaml`とwaypointファイル`19F_waypoint.yaml`を使います。既存の6地点を読み込むので、地点を追加・編集して保存できます。機体・自己位置推定・Nav2の走行サーバーは起動しません。地図・入出力先を変える場合だけlaunch引数を指定します。
 
 ```bash
-ros2 launch experiment_cat waypoint_editor.launch.py \
-  map:=/home/uedalab/ros2_ws/map/indoor_loop_map_vio.yaml \
-  output:=/home/uedalab/ros2_ws/map/route.yaml
+ros2 launch experiment_cat waypoint_editor.launch.py
 ```
 
 1. RVizの「2D Goal Pose」を選び、地図上でドラッグして地点と向きを指定します。
@@ -157,7 +150,6 @@ ros2 service call /waypoint_editor/undo std_srvs/srv/Trigger '{}'
 ros2 service call /waypoint_editor/clear std_srvs/srv/Trigger '{}'
 ```
 
-取消・全消去だけでは保存済みファイルは変わりません。既存ルートに追記する場合は起動時に `input:=/home/uedalab/ros2_ws/map/route.yaml` を追加します。
-保存後はナビゲーション起動時の `waypoints_file:=/home/uedalab/ros2_ws/map/route.yaml` で読み込めます。ナビゲーション側の `waypoints_output` と `/waypoint_route/save` は廃止しました。
+取消・全消去だけでは保存済みファイルは変わりません。既定では既存ルートを読み込んで同じファイルに保存します。保存したwaypointは引数なしのナビゲーション起動で読み込まれます。ナビゲーション側の`waypoints_output`と`/waypoint_route/save`は廃止しました。
 
 エディタの地図・入力・表示は `/waypoint_editor/*` にまとめています。ナビゲーションに使用する地図と同じ座標系の地図を指定してください。

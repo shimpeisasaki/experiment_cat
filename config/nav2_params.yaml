@@ -195,7 +195,7 @@ local_costmap:
           # after leaving the beam. A zero-duration buffer retains only the
           # latest observation; this setting retains several recent scans.
           observation_persistence: 0.5
-          expected_update_rate: 0.1
+          expected_update_rate: 0.2
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_topic: /map
@@ -231,7 +231,7 @@ global_costmap:
           obstacle_max_range: 8.0
           obstacle_min_range: 0.05
           observation_persistence: 0.5
-          expected_update_rate: 0.1
+          expected_update_rate: 0.2
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_topic: /map
