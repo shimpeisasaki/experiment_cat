@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Gate FlowNav's camera-relative trajectory and send a short Nav2 FollowPath goal."""
+import math
+import time
+
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry, Path
+from nav2_msgs.action import FollowPath
+from sensor_msgs.msg import CompressedImage, LaserScan
+from std_msgs.msg import Bool, Float32MultiArray, String
+from tf2_ros import Buffer, TransformListener
+
+
+def yaw_of(q):
+    return math.atan2(2 * (q.w * q.z + q.x * q.y),
+                      1 - 2 * (q.y * q.y + q.z * q.z))
+
+
+def quaternion(yaw):
+    from geometry_msgs.msg import Quaternion
+    return Quaternion(z=math.sin(yaw / 2), w=math.cos(yaw / 2))
+
+
+def camera_path(points, base_pose, offset, stamp):
+    """Conjugate camera motion by the base-to-lens transform, then place in odom."""
+    bx, by, base_yaw = base_pose
+    cx, cy = offset
+    path = Path()
+    path.header.frame_id = 'odom'
+    path.header.stamp = stamp
+    points = [(0., 0.)] + list(points)
+    for index, (x, y) in enumerate(points):
+        a, b = points[max(0, index - 1)] if index == len(points) - 1 else points[index + 1]
+        if index != len(points) - 1:
+            dx, dy = a - x, b - y
+        else:
+            dx, dy = x - a, y - b
+        heading = math.atan2(dy, dx) if math.hypot(dx, dy) > 1e-5 else 0.
+        # T_base_camera * T_camera_motion * inverse(T_base_camera).
+        rx = x + cx * (1 - math.cos(heading)) + cy * math.sin(heading)
+        ry = y + cy * (1 - math.cos(heading)) - cx * math.sin(heading)
+        pose = PoseStamped()
+        pose.header = path.header
+        pose.pose.position.x = bx + math.cos(base_yaw) * rx - math.sin(base_yaw) * ry
+        pose.pose.position.y = by + math.sin(base_yaw) * rx + math.cos(base_yaw) * ry
+        pose.pose.orientation = quaternion(base_yaw + heading)
+        path.poses.append(pose)
+    return path
+
+
+class FlowNavFollowPath(Node):
+    def __init__(self):
+        super().__init__('flownav_follow_path')
+        self.declare_parameter('image_topic', '/zed/zed_node/left/color/rect/image/compressed')
+        self.declare_parameter('lens_frame', 'zed_left_camera_frame')
+        self.declare_parameter('hybrid', False)
+        self.declare_parameter('meters_per_unit', 0.10)
+        self.image_topic = self.get_parameter('image_topic').value
+        self.lens_frame = self.get_parameter('lens_frame').value
+        self.hybrid = self.get_parameter('hybrid').value
+        self.scale = self.get_parameter('meters_per_unit').value
+        if not math.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError('meters_per_unit must be positive and finite')
+        self.image_time = self.sample_time = self.odom_time = self.scan_time = -math.inf
+        self.odom = None
+        self.points = None
+        self.armed = False
+        self.goal = None
+        self.pending = False
+        self.last_goal_time = -math.inf
+        self.reached = False
+        self.buffer = Buffer()
+        self.listener = TransformListener(self.buffer, self)
+        self.client = ActionClient(self, FollowPath, '/follow_path')
+        self.ready_pub = self.create_publisher(Bool, '/navigation/ready', 1)
+        self.path_pub = self.create_publisher(Path, '/flownav/reference_path', 1)
+        self.create_subscription(CompressedImage, self.image_topic, self.image, qos_profile_sensor_data)
+        self.create_subscription(Float32MultiArray, '/flownav/sampled_actions', self.sample, 10)
+        self.create_subscription(Bool, '/flownav/topoplan/reached_goal', self.goal_reached, 10)
+        self.create_subscription(Odometry, '/odom', self.odometry, qos_profile_sensor_data)
+        self.create_subscription(String, '/base_safety/status', self.base_status, 10)
+        if self.hybrid:
+            self.create_subscription(LaserScan, '/scan', self.scan, qos_profile_sensor_data)
+        self.create_timer(0.1, self.tick)
+
+    def fresh_header(self, header):
+        stamp = header.stamp.sec + header.stamp.nanosec * 1e-9
+        now = self.get_clock().now().nanoseconds * 1e-9
+        return stamp > 0 and -0.1 <= now - stamp <= 0.5
+
+    def image(self, msg):
+        expected = self.lens_frame + '_optical'
+        if self.fresh_header(msg.header) and msg.header.frame_id in (expected, self.lens_frame):
+            self.image_time = time.monotonic()
+
+    def odometry(self, msg):
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        if (msg.header.frame_id == 'odom' and msg.child_frame_id == 'base_link'
+                and self.fresh_header(msg.header)
+                and all(map(math.isfinite, (p.x, p.y, q.x, q.y, q.z, q.w)))):
+            self.odom = (p.x, p.y, yaw_of(q))
+            self.odom_time = time.monotonic()
+
+    def scan(self, msg):
+        if msg.header.frame_id == 'laser' and self.fresh_header(msg.header):
+            self.scan_time = time.monotonic()
+
+    def sample(self, msg):
+        values = list(msg.data)
+        if len(values) < 17 or (len(values) - 1) % 16 or not all(map(math.isfinite, values)):
+            self.points = None
+            return
+        points = [(values[i] * self.scale, values[i + 1] * self.scale)
+                  for i in range(1, 17, 2)]
+        if max(math.hypot(x, y) for x, y in points) > 2.0 or any(x < -0.15 for x, _ in points):
+            self.points = None
+            return
+        self.points = points
+        self.sample_time = time.monotonic()
+
+    def goal_reached(self, msg):
+        if msg.data:
+            self.reached = True
+
+    def base_status(self, msg):
+        self.armed = msg.data.startswith('2: NAVIGATION')
+
+    def cancel(self):
+        if self.goal is not None:
+            self.goal.cancel_goal_async()
+            self.goal = None
+
+    def goal_response(self, future):
+        self.pending = False
+        try:
+            handle = future.result()
+            if handle.accepted:
+                self.goal = handle
+                if not self.armed or self.reached:
+                    self.cancel()
+            else:
+                self.get_logger().warning('Nav2 rejected FollowPath goal')
+        except Exception as exc:
+            self.get_logger().error(f'FollowPath request failed: {exc}')
+
+    def tick(self):
+        now = time.monotonic()
+        fresh = (self.points is not None and self.odom is not None
+                 and now - self.image_time < 0.5 and now - self.sample_time < 1.0
+                 and now - self.odom_time < 0.5
+                 and (not self.hybrid or now - self.scan_time < 0.5)
+                 and self.client.server_is_ready() and not self.reached)
+        offset = None
+        if fresh:
+            try:
+                transform = self.buffer.lookup_transform('base_link', self.lens_frame, Time())
+                q = transform.transform.rotation
+                if abs(yaw_of(q)) < 0.05:
+                    p = transform.transform.translation
+                    offset = (p.x, p.y)
+            except Exception:
+                pass
+        ready = bool(fresh and offset is not None)
+        self.ready_pub.publish(Bool(data=ready))
+        if not ready or not self.armed:
+            self.cancel()
+            return
+        if self.pending or now - self.last_goal_time < 0.5:
+            return
+        path = camera_path(self.points, self.odom, offset, self.get_clock().now().to_msg())
+        if math.hypot(path.poses[-1].pose.position.x - self.odom[0],
+                      path.poses[-1].pose.position.y - self.odom[1]) < 0.08:
+            return
+        request = FollowPath.Goal()
+        request.path = path
+        request.controller_id = 'FollowPath'
+        request.goal_checker_id = 'short_goal'
+        self.path_pub.publish(path)
+        self.pending = True
+        self.last_goal_time = now
+        self.client.send_goal_async(request).add_done_callback(self.goal_response)
+
+
+def main():
+    rclpy.init()
+    node = FlowNavFollowPath()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.cancel()
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()
