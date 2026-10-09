@@ -22,7 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_log_level', default_value='warn',
                               choices=['debug', 'info', 'warn', 'error', 'fatal']),
         DeclareLaunchArgument('steps', default_value='12', description='12 captures at 30-degree intervals'),
-        DeclareLaunchArgument('angular_speed', default_value='0.45', description='Maximum turn speed, rad/s'),
+        DeclareLaunchArgument('angular_speed', default_value='0.18', description='Maximum turn speed, rad/s; known working 24-step profile'),
         DeclareLaunchArgument('minimum_angular_speed', default_value='0.0', description='Optional minimum turn command, rad/s; zero permits precise settling'),
         DeclareLaunchArgument('settle_time', default_value='0.5'),
         DeclareLaunchArgument('width', default_value='2048'),

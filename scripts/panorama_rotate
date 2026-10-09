@@ -48,7 +48,7 @@ class PanoramaRotate(Node):
         super().__init__('panorama_rotate', **kwargs)
         param = lambda name, default: self.declare_parameter(name, default).value
         self.steps = param('steps', 12)
-        self.speed = param('angular_speed', .45)
+        self.speed = param('angular_speed', .18)
         self.min_speed = param('minimum_angular_speed', 0.)
         self.accel = param('angular_acceleration', .8)
         self.tolerance = math.radians(param('angle_tolerance_degrees', 2.))
@@ -88,6 +88,10 @@ class PanoramaRotate(Node):
         self.phase_since = self.scan_since = time.monotonic()
         self.last_tick = time.monotonic()
         self.last_speed = 0.
+        self.safe_speed = 0.
+        self.safe_received_at = -math.inf
+        self.wheel_speed = 0.
+        self.wheel_received_at = -math.inf
         self.output = self.create_publisher(Twist, '/cmd_vel_external', 1)
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.status = self.create_publisher(String, '~/status', qos)
@@ -95,6 +99,8 @@ class PanoramaRotate(Node):
         self.create_subscription(String, '/panorama_capture/status', self.receive_capture, qos)
         self.create_subscription(Joy, '/joy', self.receive_joy, qos_profile_sensor_data)
         self.create_subscription(Odometry, '/odom', self.receive_odom, qos_profile_sensor_data)
+        self.create_subscription(Twist, '/cmd_vel_safe', self.receive_safe_command, 1)
+        self.create_subscription(Odometry, '/wheel_odom', self.receive_wheel_odom, qos_profile_sensor_data)
         self.scan_clients = {name: self.create_client(Trigger, '/panorama_capture/'+name)
                         for name in ('start', 'capture', 'finish', 'cancel')}
         self.brake = self.create_client(Trigger, '/base_safety/brake')
@@ -116,6 +122,14 @@ class PanoramaRotate(Node):
     def receive_base(self, msg):
         self.base_status = msg.data
         self.fresh['base'] = time.monotonic()
+
+    def receive_safe_command(self, msg):
+        self.safe_speed = msg.angular.z
+        self.safe_received_at = time.monotonic()
+
+    def receive_wheel_odom(self, msg):
+        self.wheel_speed = msg.twist.twist.angular.z
+        self.wheel_received_at = time.monotonic()
 
     def receive_capture(self, msg):
         try:
@@ -294,7 +308,12 @@ class PanoramaRotate(Node):
             if now-self.phase_since > self.turn_timeout:
                 self.abort(f'Rotation step {self.step}/{self.steps} timed out: '
                            f'angle error {math.degrees(error):.1f} deg, '
-                           f'measured yaw rate {self.measured_speed:.2f} rad/s')
+                           f'command {self.last_speed:.2f}, '
+                           f'safety output {self.safe_speed:.2f} '
+                           f'(age {now-self.safe_received_at:.1f}s), '
+                           f'wheel yaw rate {self.wheel_speed:.2f} '
+                           f'(age {now-self.wheel_received_at:.1f}s), '
+                           f'VIO yaw rate {self.measured_speed:.2f} rad/s')
             elif abs(error) <= self.tolerance:
                 self.zero()
                 self.transition('settling', f'Stopped at step {self.step}/{self.steps}')

@@ -35,7 +35,7 @@ ros2 topic echo /panorama_rotate/status --qos-durability transient_local
 
 距離は撮影開始位置の共通視点からのメートル値で、`depth_m.npy` にfloat32で保存する。無効画素はNaN。
 上下の未観測領域は無効のまま残す。詳細と投影規則は `cat_panorama/README.md` を参照。
-画質・深度設定は `config/zed_panorama.yaml`、保存先は `output_dir:=...`、旋回速度の上限は `angular_speed:=0.45` で指定できる。目標角付近の行き過ぎを防ぐため、`minimum_angular_speed` の既定値は0とする。
+画質・深度設定は `config/zed_panorama.yaml`、保存先は `output_dir:=...`、旋回速度の上限は `angular_speed:=0.18` で指定できる。24ステップの実機撮影が成功した速度上限を使用する。`minimum_angular_speed` の既定値は0とする。旋回タイムアウト時は指令、安全制御後の指令、車輪とVIOの角速度を表示する。
 
 ## 保存地図を使ったナビゲーション
 
