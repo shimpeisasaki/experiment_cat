@@ -40,6 +40,7 @@ def subject():
     obj.plan = TurnPlan(*obj.pose, 12)
     obj.step, obj.frames, obj.last_speed = 1, 1, 0.
     obj.linear_speed = obj.measured_speed = 0.
+    obj.driver_enabled, obj.driver_received_at = True, time.monotonic()
     obj.settled_since = obj.pending = None
     obj.commands, obj.calls = [], []
     obj.output = NS(publish=lambda msg: obj.commands.append(msg))
@@ -51,6 +52,8 @@ def subject():
         return NS(service_is_ready=lambda: True, call_async=call)
     obj.scan_clients = {name: client(name) for name in ('start', 'capture', 'finish', 'cancel')}
     obj.brake = client('brake')
+    obj.scan_clients['brake'] = obj.brake
+    obj.scan_clients['arm'] = client('arm')
     obj.get_logger = lambda: NS(info=lambda text: None)
     obj.get_clock = lambda: NS(now=lambda: NS(nanoseconds=100_000_000_000))
     obj.count_publishers = lambda topic: 1
@@ -103,7 +106,7 @@ def test_no_rotation_until_capture_ack_and_new_frame_count():
     assert obj.state == 'frame_wait' and not obj.commands
     obj.capture_status['frames'] = 2
     obj.advance(time.monotonic(), .05)
-    assert obj.state == 'turning' and obj.step == 2
+    assert obj.state == 'rearm_brake_wait' and obj.step == 2
 
 
 def test_twelve_captures_then_return_to_start_without_duplicate_frame():
@@ -111,9 +114,10 @@ def test_twelve_captures_then_return_to_start_without_duplicate_frame():
     obj.step, obj.frames, obj.state = 11, 11, 'frame_wait'
     obj.capture_status['frames'] = 12
     obj.advance(time.monotonic(), .05)
-    assert obj.state == 'turning' and obj.step == 12
+    assert obj.state == 'rearm_brake_wait' and obj.step == 12
     obj.plan.progress = 2*math.pi
     obj.state = 'settling'
+    obj.calls.clear()
     obj.settled_since = time.monotonic()-.6
     obj.advance(time.monotonic(), .05)
     assert obj.state == 'finish_wait'

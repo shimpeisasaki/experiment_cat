@@ -21,7 +21,7 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, CameraInfo, Joy
-from std_msgs.msg import UInt8
+from std_msgs.msg import UInt8, Bool
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 from cat_panorama.capture_node import PanoramaCapture
@@ -50,6 +50,9 @@ class SyntheticRobot(Node):
         self.odom = self.create_publisher(Odometry, '/odom', 10)
         self.joy = self.create_publisher(Joy, '/joy', qos_profile_sensor_data)
         self.motor = self.create_publisher(UInt8, '/base/state', 1)
+        self.drive_enabled = self.create_publisher(Bool, '/base/drive_enabled', 1)
+        self.drive_mode = 0
+        self.create_subscription(UInt8, '/base_safety/mode', self.receive_mode, 1)
         self.rgb = self.create_publisher(Image, '/zed/zed_node/rgb/color/rect/image', qos_profile_sensor_data)
         self.depth = self.create_publisher(Image, '/zed/zed_node/depth/depth_registered', qos_profile_sensor_data)
         self.info = self.create_publisher(CameraInfo, '/zed/zed_node/rgb/color/rect/camera_info', qos_profile_sensor_data)
@@ -75,6 +78,9 @@ class SyntheticRobot(Node):
         if self.command:
             self.motion_count += 1
 
+    def receive_mode(self, msg):
+        self.drive_mode = msg.data
+
     def tick(self):
         now = time.monotonic()
         # Accelerated synthetic plant stays below the controller's jump threshold.
@@ -86,6 +92,7 @@ class SyntheticRobot(Node):
         joy.header.stamp, joy.buttons = stamp, self.buttons
         self.joy.publish(joy)
         self.motor.publish(UInt8(data=3 if abs(speed) < .01 else 1))
+        self.drive_enabled.publish(Bool(data=self.drive_mode == 2))
         odom = Odometry()
         odom.header.stamp, odom.header.frame_id, odom.child_frame_id = stamp, 'odom', 'base_link'
         odom.pose.pose.orientation.z, odom.pose.pose.orientation.w = math.sin(self.yaw/2), math.cos(self.yaw/2)

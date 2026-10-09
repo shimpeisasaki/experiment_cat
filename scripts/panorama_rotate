@@ -11,7 +11,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Joy
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from std_srvs.srv import Trigger
 
 
@@ -92,6 +92,8 @@ class PanoramaRotate(Node):
         self.safe_received_at = -math.inf
         self.wheel_speed = 0.
         self.wheel_received_at = -math.inf
+        self.driver_enabled = False
+        self.driver_received_at = -math.inf
         self.output = self.create_publisher(Twist, '/cmd_vel_external', 1)
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.status = self.create_publisher(String, '~/status', qos)
@@ -101,9 +103,12 @@ class PanoramaRotate(Node):
         self.create_subscription(Odometry, '/odom', self.receive_odom, qos_profile_sensor_data)
         self.create_subscription(Twist, '/cmd_vel_safe', self.receive_safe_command, 1)
         self.create_subscription(Odometry, '/wheel_odom', self.receive_wheel_odom, qos_profile_sensor_data)
+        self.create_subscription(Bool, '/base/drive_enabled', self.receive_driver, 1)
         self.scan_clients = {name: self.create_client(Trigger, '/panorama_capture/'+name)
                         for name in ('start', 'capture', 'finish', 'cancel')}
         self.brake = self.create_client(Trigger, '/base_safety/brake')
+        self.scan_clients['brake'] = self.brake
+        self.scan_clients['arm'] = self.create_client(Trigger, '/base_safety/arm')
         self.create_timer(.05, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.get_logger().info(self.detail)
 
@@ -130,6 +135,10 @@ class PanoramaRotate(Node):
     def receive_wheel_odom(self, msg):
         self.wheel_speed = msg.twist.twist.angular.z
         self.wheel_received_at = time.monotonic()
+
+    def receive_driver(self, msg):
+        self.driver_enabled = msg.data
+        self.driver_received_at = time.monotonic()
 
     def receive_capture(self, msg):
         try:
@@ -184,7 +193,8 @@ class PanoramaRotate(Node):
         self.measured_speed = abs(velocity.angular.z)
         self.odom_stamp = stamp
         self.fresh['odom'] = time.monotonic()
-        if self.plan and self.state in ('turning', 'settling', 'capture_wait', 'frame_wait'):
+        if self.plan and self.state in ('turning', 'settling', 'capture_wait', 'frame_wait',
+                                       'rearm_brake_wait', 'rearming', 'rearm_arm_wait', 'drive_wait'):
             try:
                 self.plan.observe(*self.pose, self.max_drift)
             except ValueError as exc:
@@ -223,11 +233,14 @@ class PanoramaRotate(Node):
             if time.monotonic()-requested > self.operation_timeout:
                 self.pending = None
                 # A timed-out start may still run on the server; cancel its late result.
-                future.add_done_callback(lambda _: self.request_cancel())
+                future.add_done_callback(lambda _: self.request_brake() if name == 'arm'
+                                         else self.request_cancel())
                 self.abort(f'Panorama {name} service timed out')
             return
         self.pending = None
         if self.state != state:
+            if name == 'arm':
+                self.request_brake()
             self.request_cancel()
             return
         try:
@@ -243,6 +256,10 @@ class PanoramaRotate(Node):
                 self.transition('frame_wait', 'Saving synchronized RGB-D frame')
             elif name == 'finish':
                 self.transition('saving', 'Saving final RGB-D panorama')
+            elif name == 'brake':
+                self.transition('rearming', 'Waiting for stationary brake handshake')
+            elif name == 'arm':
+                self.transition('drive_wait', 'Waiting for actual motor drive permission')
         except Exception as exc:
             self.abort(f'Panorama service failed: {exc}')
 
@@ -294,11 +311,34 @@ class PanoramaRotate(Node):
             elif now-self.phase_since > self.operation_timeout:
                 self.abort('Panorama generation timed out')
             return
-        if not (fresh('base', .4) and self.base_status.startswith('2: NAVIGATION')):
-            self.abort('Base drive permission lost')
+        if not fresh('base', .4):
+            self.abort('Base safety heartbeat lost')
             return
         if not fresh('odom', .5):
             self.abort('Odometry is stale (no recent /odom)')
+            return
+        if self.state in ('rearm_brake_wait', 'rearm_arm_wait'):
+            return
+        if self.state == 'rearming':
+            if now-self.phase_since > self.start_timeout:
+                self.abort('Motor rearm timed out: '+self.base_status)
+            elif (now-self.phase_since >= 2.2 and self.base_status.startswith('0:') and
+                  self.linear_speed <= .02 and self.measured_speed <= .04):
+                self.call('arm', 'rearm_arm_wait')
+            return
+        if self.state == 'drive_wait':
+            if (self.base_status.startswith('2: NAVIGATION') and
+                    now-self.driver_received_at <= .4 and self.driver_enabled):
+                self.transition('turning', f'Rotate to {360*self.step/self.steps:.1f} degrees')
+            elif now-self.phase_since > 5.:
+                self.abort('Motor driver did not enable drive: check /base/drive_enabled; '
+                           'rebuild ddsm115_controller if the topic is missing')
+            return
+        if not self.base_status.startswith('2: NAVIGATION'):
+            self.abort('Base drive permission lost')
+            return
+        if self.state == 'turning' and (now-self.driver_received_at > .4 or not self.driver_enabled):
+            self.abort('Motor driver brake/lease inhibited drive')
             return
         if self.count_publishers('/cmd_vel_external') > 1:
             self.abort('Multiple publishers on /cmd_vel_external')
@@ -348,7 +388,8 @@ class PanoramaRotate(Node):
             if matching and self.capture_status.get('frames', 0) >= self.frames+1:
                 self.frames += 1
                 self.step += 1
-                self.transition('turning', f'Rotate to {360*self.step/self.steps:.1f} degrees')
+                self.zero()
+                self.call('brake', 'rearm_brake_wait')
             elif now-self.phase_since > self.operation_timeout:
                 reason = self.capture_status.get('waiting_for') or 'no new synchronized frame'
                 self.abort('RGB-D frame acquisition timed out: '+reason)
