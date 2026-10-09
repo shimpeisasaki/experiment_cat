@@ -35,17 +35,18 @@ def map_nodes(context):
             Node(package='nav2_map_server', executable='map_server', name='map_server',
                  parameters=[{'use_sim_time': False, 'frame_id': 'map',
                               'yaml_filename': str(Path(navigation).expanduser().resolve())}],
+                 arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
                  output='screen'),
             Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                  name='lifecycle_manager_navigation_map',
+                 arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
                  parameters=[{'autostart': True, 'node_names': ['map_server']}], output='screen'),
         ]
     if slam:
-        mapper = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py'])),
-            launch_arguments={'use_sim_time': 'false',
-                              'slam_params_file': LaunchConfiguration('slam_params_file')}.items())
+        mapper = Node(package='slam_toolbox', executable='async_slam_toolbox_node',
+                      name='slam_toolbox', output='screen',
+                      parameters=[LaunchConfiguration('slam_params_file'), {'use_sim_time': False}],
+                      arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')])
         # With a written navigation map, live SLAM must not overwrite /map.
         actions.append(GroupAction([SetRemap(src='/map', dst='/localization/map'), mapper])
                        if navigation else mapper)
@@ -57,6 +58,7 @@ def map_nodes(context):
                 'map': str(Path(localization).expanduser().resolve()),
                 'use_sim_time': 'false',
                 'localization_params_file': LaunchConfiguration('localization_params_file'),
+                'log_level': LaunchConfiguration('log_level'),
             }.items()))
     return actions
 
@@ -69,7 +71,8 @@ def waypoint_node(context):
     if not path.is_file():
         raise ValueError(f'Waypoint YAML does not exist: {path}')
     return [Node(package='experiment_cat', executable='waypoint_route', name='waypoint_route',
-                 parameters=[{'waypoints_file': str(path)}], output='screen')]
+                 parameters=[{'waypoints_file': str(path)}], output='screen',
+                 arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')])]
 
 
 def generate_launch_description():
@@ -85,6 +88,9 @@ def generate_launch_description():
         DeclareLaunchArgument('use_gnss', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('gnss_serial', default_value=''),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
+        DeclareLaunchArgument('log_level', default_value='warn',
+                              choices=['debug', 'info', 'warn', 'error', 'fatal']),
+        DeclareLaunchArgument('zed_log_level', default_value=LaunchConfiguration('log_level')),
         DeclareLaunchArgument('use_zed', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
         DeclareLaunchArgument('zed_config', default_value=PathJoinSubstitution([
@@ -136,19 +142,25 @@ def generate_launch_description():
                 'gnss_serial': LaunchConfiguration('gnss_serial'),
                 'serial_port': LaunchConfiguration('serial_port'),
                 'serial_number': LaunchConfiguration('serial_number'),
+                'log_level': LaunchConfiguration('log_level'),
+                'zed_log_level': LaunchConfiguration('zed_log_level'),
                 'require_navigation': 'true', 'rviz': 'false',
             }.items()),
         Node(package='experiment_cat', executable='navigation_guard',
-             name='navigation_guard', output='screen'),
+             name='navigation_guard', output='screen',
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')]),
         Node(package='nav2_collision_monitor', executable='collision_monitor',
-             name='collision_monitor', output='screen', parameters=[params_file]),
+             name='collision_monitor', output='screen', parameters=[params_file],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='collision_monitor_lifecycle_manager', output='screen',
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
              parameters=[{'autostart': True, 'node_names': ['collision_monitor']}]),
         Node(
             package='rviz2', executable='rviz2', name='nav2_rviz', output='screen',
             arguments=['-d', PathJoinSubstitution([
-                share, 'rviz', 'navigation.rviz'])],
+                share, 'rviz', 'navigation.rviz']),
+                '--ros-args', '--log-level', LaunchConfiguration('log_level')],
             condition=IfCondition(LaunchConfiguration('navigation_rviz'))),
 
         IncludeLaunchDescription(
@@ -159,6 +171,7 @@ def generate_launch_description():
                 'autostart': 'true',
                 'params_file': params_file,
                 'use_composition': 'False',
+                'log_level': LaunchConfiguration('log_level'),
             }.items()),
 
     ])

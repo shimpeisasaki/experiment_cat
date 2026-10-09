@@ -12,17 +12,21 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('map', description='Absolute path to saved map YAML'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('log_level', default_value='warn'),
         DeclareLaunchArgument('localization_params_file', default_value=PathJoinSubstitution([
             FindPackageShare('experiment_cat'), 'config', 'emcl2.yaml'])),
         Node(package='nav2_map_server', executable='map_server', name='localization_map_server',
              parameters=[clock, {'yaml_filename': LaunchConfiguration('map')}],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
              remappings=[('map', '/localization/map')], output='screen'),
         Node(package='emcl2', executable='emcl2_node', name='emcl2',
              parameters=[LaunchConfiguration('localization_params_file'), clock],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
              remappings=[('map', '/localization/map')], output='screen'),
         # emcl2 is an ordinary node; only map_server needs lifecycle activation.
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='lifecycle_manager_localization',
              parameters=[clock, {'autostart': True, 'node_names': ['localization_map_server']}],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
              output='screen'),
     ])

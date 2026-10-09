@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+"""A-button RGB-D scan: stop/capture, step through 360 degrees, save, brake."""
+import json
+import math
+import time
+
+import rclpy
+from rclpy.clock import Clock, ClockType
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Joy
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
+
+
+def angle_delta(current, previous):
+    return math.atan2(math.sin(current-previous), math.cos(current-previous))
+
+
+class TurnPlan:
+    """Unwrap measured yaw, including the +/- pi crossing; reject pose resets."""
+    def __init__(self, yaw, stamp, x, y, steps):
+        self.yaw, self.stamp = yaw, stamp
+        self.x, self.y = x, y
+        self.progress = 0.
+        self.steps = steps
+
+    def observe(self, yaw, stamp, x, y, max_drift):
+        dt = stamp-self.stamp
+        if dt <= 0:
+            return
+        delta = angle_delta(yaw, self.yaw)
+        if dt > 1. or abs(delta) > .05+2.*dt:
+            raise ValueError('Odometry gap/jump during scan')
+        if math.hypot(x-self.x, y-self.y) > max_drift:
+            raise ValueError('Base moved too far from the scan origin')
+        self.progress += delta
+        self.yaw, self.stamp = yaw, stamp
+
+    def error(self, index):
+        return index*2*math.pi/self.steps-self.progress
+
+
+class PanoramaRotate(Node):
+    def __init__(self, **kwargs):
+        super().__init__('panorama_rotate', **kwargs)
+        param = lambda name, default: self.declare_parameter(name, default).value
+        self.steps = param('steps', 12)
+        self.speed = param('angular_speed', .45)
+        self.min_speed = param('minimum_angular_speed', 0.)
+        self.accel = param('angular_acceleration', .8)
+        self.tolerance = math.radians(param('angle_tolerance_degrees', 2.))
+        self.settle_time = param('settle_time', .5)
+        self.start_timeout = param('start_timeout', 25.)
+        self.operation_timeout = param('operation_timeout', 30.)
+        self.scan_timeout = param('scan_timeout', 240.)
+        self.turn_timeout = param('turn_timeout', 20.)
+        self.max_drift = param('max_base_drift', .3)
+        self.a = param('start_button', 0)
+        self.b = param('cancel_button', 1)
+        self.x = param('manual_button', 2)
+        self.y = param('free_button', 3)
+        if not 8 <= self.steps <= 360 or not .01 <= self.speed <= .5:
+            raise ValueError('steps must be 8..360; angular_speed must be .01..0.5 rad/s')
+        if not 0 <= self.min_speed <= self.speed:
+            raise ValueError('minimum_angular_speed must be between zero and angular_speed')
+        if not 0 < self.tolerance < math.pi/self.steps or self.accel <= 0:
+            raise ValueError('Invalid angular tolerance / acceleration')
+        if min(self.a, self.b, self.x, self.y) < 0 or self.settle_time < .1:
+            raise ValueError('Invalid button index / settle time')
+        self.state = 'idle'
+        self.detail = 'Ready: release A, then press A to scan; B cancels'
+        self.pose = None
+        self.plan = None
+        self.buttons = []
+        self.a_released = False
+        self.joy_stamp = 0.
+        self.odom_stamp = 0.
+        self.fresh = {}
+        self.base_status = ''
+        self.capture_status = {}
+        self.session = ''
+        self.pending = None
+        self.step = self.frames = 0
+        self.settled_since = None
+        self.phase_since = self.scan_since = time.monotonic()
+        self.last_tick = time.monotonic()
+        self.last_speed = 0.
+        self.output = self.create_publisher(Twist, '/cmd_vel_external', 1)
+        qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.status = self.create_publisher(String, '~/status', qos)
+        self.create_subscription(String, '/base_safety/status', self.receive_base, qos)
+        self.create_subscription(String, '/panorama_capture/status', self.receive_capture, qos)
+        self.create_subscription(Joy, '/joy', self.receive_joy, qos_profile_sensor_data)
+        self.create_subscription(Odometry, '/odom', self.receive_odom, qos_profile_sensor_data)
+        self.scan_clients = {name: self.create_client(Trigger, '/panorama_capture/'+name)
+                        for name in ('start', 'capture', 'finish', 'cancel')}
+        self.brake = self.create_client(Trigger, '/base_safety/brake')
+        self.create_timer(.05, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
+        self.get_logger().info(self.detail)
+
+    @property
+    def active(self):
+        return self.state not in ('idle', 'done', 'error')
+
+    def transition(self, state, detail):
+        self.state, self.detail, self.phase_since = state, detail, time.monotonic()
+        self.settled_since = None
+        if state in ('waiting', 'done'):
+            self.get_logger().info(detail)
+        elif state == 'error':
+            self.get_logger().error(detail)
+
+    def receive_base(self, msg):
+        self.base_status = msg.data
+        self.fresh['base'] = time.monotonic()
+
+    def receive_capture(self, msg):
+        try:
+            data = json.loads(msg.data)
+            if not isinstance(data, dict):
+                return
+            self.capture_status = data
+            self.fresh['capture'] = time.monotonic()
+        except (ValueError, TypeError):
+            return
+
+    def receive_joy(self, msg):
+        stamp = msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9
+        age = self.get_clock().now().nanoseconds*1e-9-stamp
+        if (len(msg.buttons) <= max(self.a, self.b, self.x, self.y) or
+                stamp <= self.joy_stamp or not -.1 <= age <= .5):
+            return
+        self.joy_stamp = stamp
+        self.fresh['joy'] = time.monotonic()
+        previous, self.buttons = self.buttons, list(msg.buttons)
+        pressed = lambda i: bool(self.buttons[i] and previous and not previous[i])
+        if not self.buttons[self.a]:
+            self.a_released = True
+        if self.buttons[self.b] or self.buttons[self.x] or self.buttons[self.y]:
+            if self.active:
+                self.abort('Joystick B/X/Y: scan cancelled')
+        elif pressed(self.a) and self.a_released and not self.active and self.pending is None:
+            self.a_released = False
+            self.scan_since = time.monotonic()
+            self.plan, self.session = None, ''
+            self.step = self.frames = 0
+            self.transition('waiting', 'A pressed; waiting for base drive permission and RGB-D / TF')
+
+    def receive_odom(self, msg):
+        stamp = msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9
+        age = self.get_clock().now().nanoseconds*1e-9-stamp
+        if stamp <= self.odom_stamp or not -.1 <= age <= .5:
+            return
+        p, q, velocity = msg.pose.pose.position, msg.pose.pose.orientation, msg.twist.twist
+        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w,
+                  velocity.linear.x, velocity.linear.y, velocity.angular.z)
+        norm = math.sqrt(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w)
+        if (msg.header.frame_id != 'odom' or msg.child_frame_id != 'base_link' or
+                not all(math.isfinite(v) for v in values) or norm < 1e-6):
+            if self.active:
+                self.abort('Invalid odometry pose, twist or frame')
+            return
+        x, y, z, w = q.x/norm, q.y/norm, q.z/norm, q.w/norm
+        yaw = math.atan2(2*(w*z+x*y), 1-2*(y*y+z*z))
+        self.pose = (yaw, stamp, p.x, p.y)
+        self.linear_speed = math.hypot(velocity.linear.x, velocity.linear.y)
+        self.measured_speed = abs(velocity.angular.z)
+        self.odom_stamp = stamp
+        self.fresh['odom'] = time.monotonic()
+        if self.plan and self.state in ('turning', 'settling', 'capture_wait', 'frame_wait'):
+            try:
+                self.plan.observe(*self.pose, self.max_drift)
+            except ValueError as exc:
+                self.abort(str(exc))
+
+    def zero(self):
+        self.last_speed = 0.
+        self.output.publish(Twist())
+
+    def request_brake(self):
+        self.zero()
+        if self.brake.service_is_ready():
+            self.brake.call_async(Trigger.Request())
+
+    def request_cancel(self):
+        if self.scan_clients['cancel'].service_is_ready():
+            self.scan_clients['cancel'].call_async(Trigger.Request())
+
+    def abort(self, reason):
+        self.request_brake()
+        self.request_cancel()
+        self.transition('error', reason+'; release A and press A to retry')
+
+    def call(self, name, state):
+        if not self.scan_clients[name].service_is_ready():
+            self.abort(f'Panorama {name} service unavailable')
+            return
+        self.transition(state, f'Waiting for {name}')
+        self.pending = (name, state, self.scan_clients[name].call_async(Trigger.Request()), time.monotonic())
+
+    def poll_service(self):
+        if self.pending is None:
+            return
+        name, state, future, requested = self.pending
+        if not future.done():
+            if time.monotonic()-requested > self.operation_timeout:
+                self.pending = None
+                # A timed-out start may still run on the server; cancel its late result.
+                future.add_done_callback(lambda _: self.request_cancel())
+                self.abort(f'Panorama {name} service timed out')
+            return
+        self.pending = None
+        if self.state != state:
+            self.request_cancel()
+            return
+        try:
+            response = future.result()
+            if not response.success:
+                self.abort(response.message)
+                return
+            if name == 'start':
+                self.session = response.message
+                self.plan = TurnPlan(*self.pose, self.steps)
+                self.transition('settling', 'Capture initial direction')
+            elif name == 'capture':
+                self.transition('frame_wait', 'Saving synchronized RGB-D frame')
+            elif name == 'finish':
+                self.transition('saving', 'Saving final RGB-D panorama')
+        except Exception as exc:
+            self.abort(f'Panorama service failed: {exc}')
+
+    def tick(self):
+        now = time.monotonic()
+        dt = now-self.last_tick
+        self.last_tick = now
+        if self.active and dt > .25:
+            self.abort('Rotation controller timer stalled')
+        self.poll_service()
+        if self.active:
+            self.advance(now, dt)
+        if self.state != 'turning':
+            self.zero()
+        self.status.publish(String(data=json.dumps({
+            'state': self.state, 'message': self.detail,
+            'angle_degrees': math.degrees(self.plan.progress) if self.plan else 0.,
+            'frame_count': self.frames, 'target_frames': self.steps, 'path': self.session,
+        })))
+
+    def advance(self, now, dt):
+        fresh = lambda key, age: now-self.fresh.get(key, -math.inf) <= age
+        if not fresh('joy', .5):
+            self.abort('Joystick disconnected/stale')
+            return
+        if now-self.scan_since > self.scan_timeout:
+            self.abort('Scan timeout')
+            return
+        if self.state == 'waiting':
+            if now-self.phase_since > self.start_timeout:
+                self.abort('Start timeout: base, odometry or RGB-D / TF not ready')
+            elif (fresh('base', .4) and self.base_status.startswith('2: NAVIGATION') and
+                  fresh('odom', .5) and fresh('capture', 1.) and
+                  self.capture_status.get('ready') and
+                  self.capture_status.get('state') in ('idle', 'complete', 'cancelled', 'error')):
+                self.call('start', 'start_wait')
+            return
+        if not fresh('capture', 1.):
+            self.abort('Panorama process heartbeat lost')
+            return
+        matching = self.capture_status.get('path') == self.session
+        if matching and self.capture_status.get('state') in ('error', 'cancelled'):
+            self.abort(self.capture_status.get('error') or 'Panorama session cancelled')
+            return
+        if self.state in ('saving', 'finish_wait'):
+            if matching and self.capture_status.get('state') == 'complete':
+                self.request_brake()
+                self.transition('done', 'Saved RGB-D panorama: '+self.session)
+            elif now-self.phase_since > self.operation_timeout:
+                self.abort('Panorama generation timed out')
+            return
+        if not (fresh('base', .4) and self.base_status.startswith('2: NAVIGATION')):
+            self.abort('Base drive permission lost')
+            return
+        if not fresh('odom', .5):
+            self.abort('Odometry is stale (no recent /odom)')
+            return
+        if self.count_publishers('/cmd_vel_external') > 1:
+            self.abort('Multiple publishers on /cmd_vel_external')
+            return
+        if self.state == 'turning':
+            error = self.plan.error(self.step)
+            if now-self.phase_since > self.turn_timeout:
+                self.abort(f'Rotation step {self.step}/{self.steps} timed out: '
+                           f'angle error {math.degrees(error):.1f} deg, '
+                           f'measured yaw rate {self.measured_speed:.2f} rad/s')
+            elif abs(error) <= self.tolerance:
+                self.zero()
+                self.transition('settling', f'Stopped at step {self.step}/{self.steps}')
+            else:
+                desired = math.copysign(min(self.speed, max(self.min_speed, .8*abs(error))), error)
+                delta = max(-self.accel*dt, min(self.accel*dt, desired-self.last_speed))
+                self.last_speed += delta
+                command = Twist()
+                command.angular.z = self.last_speed
+                self.output.publish(command)
+        elif self.state == 'settling':
+            if now-self.phase_since > self.turn_timeout:
+                reason = (self.capture_status.get('waiting_for') or 'RGB-D / TF is stale')
+                self.abort('Could not settle or get RGB-D / TF: '+reason)
+            elif abs(self.plan.error(self.step)) > self.tolerance:
+                self.transition('turning', 'Correcting angle after settling')
+            elif self.linear_speed > .02 or self.measured_speed > .04:
+                self.settled_since = None
+            elif self.step < self.steps and not self.capture_status.get('ready'):
+                self.settled_since = None
+            else:
+                if self.settled_since is None:
+                    self.settled_since = now
+                elif now-self.settled_since >= self.settle_time:
+                    if self.step == self.steps:
+                        # Return to the start direction without taking a duplicate 13th frame.
+                        self.request_brake()
+                        self.call('finish', 'finish_wait')
+                    else:
+                        self.call('capture', 'capture_wait')
+        elif self.state == 'frame_wait':
+            if matching and self.capture_status.get('frames', 0) >= self.frames+1:
+                self.frames += 1
+                self.step += 1
+                self.transition('turning', f'Rotate to {360*self.step/self.steps:.1f} degrees')
+            elif now-self.phase_since > self.operation_timeout:
+                reason = self.capture_status.get('waiting_for') or 'no new synchronized frame'
+                self.abort('RGB-D frame acquisition timed out: '+reason)
+
+
+def main():
+    rclpy.init()
+    node = PanoramaRotate()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if rclpy.ok():
+            node.request_brake()
+            node.request_cancel()
+            rclpy.spin_once(node, timeout_sec=.05)
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

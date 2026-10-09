@@ -15,11 +15,35 @@ source install/setup.bash
 
 新しい端末ではROS 2とワークスペースの `setup.bash` を再度読み込む。地図YAML、対応する画像、waypoint YAMLは `map/` 内で一緒に管理し、別PCへ展開するときも同じリポジトリの変更として共有する。`map/` に新しい地図を追加した後はビルドを実施し、パッケージ共有ディレクトリへ反映する。
 
+## RGB-Dパノラマ撮影
+
+`cat_panorama` を同じワークスペースの `src/` に配置して上記のビルドを行い、以下を1回起動する。
+機体bringup、ZED Mini、ジョイスティックもこのlaunchが起動する。
+
+```bash
+ros2 launch experiment_cat panorama.launch.py
+```
+
+Aを一度離してから押すと、走行許可とRGB-D/TFの準備を待ち、30度ごとに停止・撮影しながら反時計回りに1周する。撮影枚数は0度から330度の12枚。360度に戻って終了する。
+終了後はブレーキをかけ、`~/ros2_ws/data/panorama/<日時>_<ID>/` にRGB・距離・有効画素マスク・撮影フレームを保存する。
+保存成功は `/panorama_rotate/status` の `done`、または保存先の `metadata.json` の `state: complete` で確認する。
+Bで中止・停止。完了後に再度Aを押すと、新しいフォルダへ次の撮影を行う。
+
+```bash
+ros2 topic echo /panorama_rotate/status --qos-durability transient_local
+```
+
+距離は撮影開始位置の共通視点からのメートル値で、`depth_m.npy` にfloat32で保存する。無効画素はNaN。
+上下の未観測領域は無効のまま残す。詳細と投影規則は `cat_panorama/README.md` を参照。
+画質・深度設定は `config/zed_panorama.yaml`、保存先は `output_dir:=...`、旋回速度の上限は `angular_speed:=0.45` で指定できる。目標角付近の行き過ぎを防ぐため、`minimum_angular_speed` の既定値は0とする。
+
 ## 保存地図を使ったナビゲーション
 
 ```bash
 ros2 launch experiment_cat navigation.launch.py
 ```
+
+通常起動、マッピング、FlowNavのROSノードは既定で警告・エラーのみを表示する。調査時は `log_level:=info` を付けるとINFOログを表示できる。例: `ros2 launch experiment_cat navigation.launch.py log_level:=info`。ZEDだけを詳しく見る場合は `zed_log_level:=info` を指定する。安全停止の状態は `/base_safety/status`、waypointの状態は `/waypoint_route/status` でも確認できる。
 
 既定では `slam:=false` とし、以下のファイルをパッケージ内の `map/` から読み込む。
 

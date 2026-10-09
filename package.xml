@@ -8,6 +8,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>cat_bringup</exec_depend>
+  <exec_depend>cat_panorama</exec_depend>
   <exec_depend>emcl2</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -32,6 +33,7 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export><build_type>ament_cmake</build_type></export>
 </package>

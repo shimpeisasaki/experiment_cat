@@ -23,16 +23,20 @@ def setup(context):
     return [
         Node(package='nav2_map_server', executable='map_server', name='waypoint_map_server',
              parameters=[{'use_sim_time': False, 'frame_id': 'map', 'yaml_filename': str(map_file)}],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
              remappings=[('map', '/waypoint_editor/map')], output='screen'),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='waypoint_map_lifecycle_manager',
              parameters=[{'use_sim_time': False, 'autostart': True,
-                          'node_names': ['waypoint_map_server']}], output='screen'),
+                          'node_names': ['waypoint_map_server']}], output='screen',
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')]),
         Node(package='experiment_cat', executable='waypoint_editor', name='waypoint_editor',
-             parameters=[{'input': source, 'output': str(output)}], output='screen'),
+             parameters=[{'input': source, 'output': str(output)}], output='screen',
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')]),
         Node(package='rviz2', executable='rviz2', name='waypoint_editor_rviz',
              arguments=['-d', PathJoinSubstitution([
-                 FindPackageShare('experiment_cat'), 'rviz', 'waypoint_editor.rviz'])],
+                 FindPackageShare('experiment_cat'), 'rviz', 'waypoint_editor.rviz']),
+                 '--ros-args', '--log-level', LaunchConfiguration('log_level')],
              output='screen'),
     ]
 
@@ -49,5 +53,7 @@ def generate_launch_description():
         DeclareLaunchArgument('input',
                               default_value=PathJoinSubstitution([share, 'map', '19F_waypoint.yaml']),
                               description='Existing route to edit'),
+        DeclareLaunchArgument('log_level', default_value='warn',
+                              choices=['debug', 'info', 'warn', 'error', 'fatal']),
         OpaqueFunction(function=setup),
     ])

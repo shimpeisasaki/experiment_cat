@@ -31,6 +31,8 @@ def start(context):
             launch_arguments={'use_lidar': 'false', 'require_navigation': 'false',
                               'odom_source': value('odom_source'), 'rviz': 'false',
                               'serial_number': value('serial_number'),
+                              'log_level': value('log_level'),
+                              'zed_log_level': value('zed_log_level'),
                               'zed_config': str(base_share / 'config/zed_flownav.yaml')}.items()),
         ExecuteProcess(
             cmd=[sys.executable, str(repo / 'deployment/src/navigation/create_topomap.py'),
@@ -49,5 +51,8 @@ def generate_launch_description():
         DeclareLaunchArgument('topomap', default_value=str(workspace / 'data/flownav/topomaps/default')),
         DeclareLaunchArgument('image_interval', default_value='1.0'),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
+        DeclareLaunchArgument('log_level', default_value='warn',
+                              choices=['debug', 'info', 'warn', 'error', 'fatal']),
+        DeclareLaunchArgument('zed_log_level', default_value=LaunchConfiguration('log_level')),
         OpaqueFunction(function=start),
     ])

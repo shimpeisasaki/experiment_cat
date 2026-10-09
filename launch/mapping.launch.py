@@ -16,7 +16,6 @@ def generate_launch_description():
     share = FindPackageShare('experiment_cat')
     base_share = FindPackageShare('cat_bringup')
     nav2_share = FindPackageShare('nav2_bringup')
-    slam_share = FindPackageShare('slam_toolbox')
 
     return LaunchDescription([
         DeclareLaunchArgument('use_gnss', default_value='false', choices=['true', 'false']),
@@ -26,6 +25,9 @@ def generate_launch_description():
         DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
         DeclareLaunchArgument('mapping_rviz', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
+        DeclareLaunchArgument('log_level', default_value='warn',
+                              choices=['debug', 'info', 'warn', 'error', 'fatal']),
+        DeclareLaunchArgument('zed_log_level', default_value=LaunchConfiguration('log_level')),
         DeclareLaunchArgument(
             'robot_config',
             default_value=PathJoinSubstitution([base_share, 'config', 'robot.yaml'])),
@@ -61,17 +63,17 @@ def generate_launch_description():
                 'robot_config': LaunchConfiguration('robot_config'),
                 'manual_config': LaunchConfiguration('manual_config'),
                 'zed_config': LaunchConfiguration('zed_config'),
+                'log_level': LaunchConfiguration('log_level'),
+                'zed_log_level': LaunchConfiguration('zed_log_level'),
             }.items()),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                slam_share, 'launch', 'online_async_launch.py'])),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'slam_params_file': LaunchConfiguration('slam_params_file'),
-            }.items()),
+        Node(package='slam_toolbox', executable='async_slam_toolbox_node',
+             name='slam_toolbox', output='screen',
+             parameters=[LaunchConfiguration('slam_params_file'), {'use_sim_time': False}],
+             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')]),
         Node(
             package='rviz2', executable='rviz2', name='mapping_rviz', output='screen',
             arguments=['-d', PathJoinSubstitution([
-                nav2_share, 'rviz', 'nav2_default_view.rviz'])],
+                nav2_share, 'rviz', 'nav2_default_view.rviz']),
+                '--ros-args', '--log-level', LaunchConfiguration('log_level')],
             condition=IfCondition(LaunchConfiguration('mapping_rviz'))),
     ])

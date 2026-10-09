@@ -92,22 +92,28 @@ def start(context):
                 'zed_config': str(base_share / 'config/zed_flownav.yaml'),
                 'serial_port': value('serial_port'),
                 'serial_number': value('serial_number'),
+                'log_level': value('log_level'),
+                'zed_log_level': value('zed_log_level'),
                 'rviz': 'false',
             }.items()),
         Node(package='nav2_controller', executable='controller_server',
              name='controller_server', parameters=[str(params)], output='screen',
+             arguments=['--ros-args', '--log-level', value('log_level')],
              remappings=[('cmd_vel', '/flownav/cmd_vel_nav')]),
         Node(package='nav2_velocity_smoother', executable='velocity_smoother',
              name='velocity_smoother_flownav', parameters=[str(params)], output='screen',
+             arguments=['--ros-args', '--log-level', value('log_level')],
              remappings=[('cmd_vel', '/flownav/cmd_vel_nav'),
                          ('cmd_vel_smoothed', smoother_output)]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='flownav_lifecycle_manager', output='screen',
+             arguments=['--ros-args', '--log-level', value('log_level')],
              parameters=[{'autostart': True, 'node_names': [
                  'controller_server', 'velocity_smoother_flownav'] +
                  (['collision_monitor'] if hybrid else [])}]),
         Node(package='experiment_cat', executable='flownav_follow_path',
              name='flownav_follow_path', output='screen',
+             arguments=['--ros-args', '--log-level', value('log_level')],
              parameters=[{'image_topic': image_topic, 'lens_frame': lens_frame,
                           'hybrid': hybrid,
                           'meters_per_unit': ParameterValue(
@@ -119,7 +125,8 @@ def start(context):
     ]
     if hybrid:
         actions.insert(3, Node(package='nav2_collision_monitor', executable='collision_monitor',
-                               name='collision_monitor', parameters=[str(params)], output='screen'))
+                               name='collision_monitor', parameters=[str(params)], output='screen',
+                               arguments=['--ros-args', '--log-level', value('log_level')]))
     return actions
 
 
@@ -142,5 +149,8 @@ def generate_launch_description():
         DeclareLaunchArgument('meters_per_unit', default_value='0.10'),
         DeclareLaunchArgument('serial_port', default_value='/dev/rplidar'),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
+        DeclareLaunchArgument('log_level', default_value='warn',
+                              choices=['debug', 'info', 'warn', 'error', 'fatal']),
+        DeclareLaunchArgument('zed_log_level', default_value=LaunchConfiguration('log_level')),
         OpaqueFunction(function=start),
     ])
