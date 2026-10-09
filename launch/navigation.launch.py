@@ -75,6 +75,7 @@ def waypoint_node(context):
 def generate_launch_description():
     share = FindPackageShare('experiment_cat')
     base_share = FindPackageShare('cat_bringup')
+    panorama_share = FindPackageShare('cat_panorama')
     nav2_share = FindPackageShare('nav2_bringup')
     params_file = LaunchConfiguration('params_file')
     robot_config = LaunchConfiguration('robot_config')
@@ -87,9 +88,10 @@ def generate_launch_description():
         DeclareLaunchArgument('serial_number', default_value='10028118'),
         DeclareLaunchArgument('use_zed', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
-        DeclareLaunchArgument('zed_config', default_value=PathJoinSubstitution([
-            base_share, 'config', PythonExpression(["'zed_vio.yaml' if '",
-                LaunchConfiguration('odom_source'), "' == 'vio' else 'zed_sensors.yaml'"])])),
+        DeclareLaunchArgument('zed_config', default_value=PythonExpression([
+            "'", panorama_share, "/config/zed_shared.yaml' if '",
+            LaunchConfiguration('odom_source'), "' == 'vio' else '",
+            base_share, "/config/zed_sensors.yaml'"])),
         DeclareLaunchArgument('rviz', default_value='true', choices=['true', 'false']),
         # cat_bringup receives rviz:=false; preserve the navigation display choice.
         DeclareLaunchArgument('navigation_rviz', default_value=LaunchConfiguration('rviz'),
