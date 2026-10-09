@@ -7,6 +7,7 @@ import time
 import rclpy
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -353,7 +354,7 @@ class PanoramaRotate(Node):
                            f'(age {now-self.safe_received_at:.1f}s), '
                            f'wheel yaw rate {self.wheel_speed:.2f} '
                            f'(age {now-self.wheel_received_at:.1f}s), '
-                           f'VIO yaw rate {self.measured_speed:.2f} rad/s')
+                           f'odom yaw rate {self.measured_speed:.2f} rad/s')
             elif abs(error) <= self.tolerance:
                 self.zero()
                 self.transition('settling', f'Stopped at step {self.step}/{self.steps}')
@@ -396,13 +397,17 @@ class PanoramaRotate(Node):
 
 
 def main():
-    rclpy.init()
+    # Keep the ROS context alive through the stop/cancel requests on Ctrl+C.
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = PanoramaRotate()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        node.state = 'idle'
+        for timer in node.timers:
+            timer.cancel()
         if rclpy.ok():
             node.request_brake()
             node.request_cancel()

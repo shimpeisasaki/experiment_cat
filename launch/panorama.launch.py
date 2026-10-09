@@ -17,7 +17,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('output_dir', default_value=str(Path.home()/'ros2_ws/data/panorama')),
         DeclareLaunchArgument('bringup', default_value='true', choices=['true', 'false']),
-        DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
+        DeclareLaunchArgument('odom_source', default_value='wheel', choices=['vio', 'wheel'],
+                              description='Wheel/gyro odometry avoids stationary ZED VIO position jumps'),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
         DeclareLaunchArgument('zed_log_level', default_value='warn',
                               choices=['debug', 'info', 'warn', 'error', 'fatal']),

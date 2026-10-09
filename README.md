@@ -27,6 +27,7 @@ ros2 launch experiment_cat panorama.launch.py
 Aを一度離してから押すと、走行許可とRGB-D/TFの準備を待ち、30度ごとに停止・撮影しながら反時計回りに1周する。撮影枚数は0度から330度の12枚。360度に戻って終了する。
 終了後はブレーキをかけ、`~/ros2_ws/data/panorama/<日時>_<ID>/` にRGB・距離・有効画素マスク・撮影フレームを保存する。
 各撮影後、ブレーキと2秒以上の停止確認を経て走行許可を取り直す。`/base/drive_enabled` がドライバの実際の走行可能状態を示し、trueを確認してから次の旋回を開始する。ドライバ側の許可が失われた場合は撮影を中止する。
+パノラマの位置・旋回角・画像時刻TFは既定で車輪＋IMUのオドメトリを使用する。静止中のZED VIOの位置ずれで撮影を中止しないための設定。`odom_source:=vio` でVIOへ戻せる。車輪の空転は姿勢誤差になるため、実際の撮影は床に接地した状態で行う。撮影中にAを押し直しても走行許可を解除しない。
 保存成功は `/panorama_rotate/status` の `done`、または保存先の `metadata.json` の `state: complete` で確認する。
 Bで中止・停止。完了後に再度Aを押すと、新しいフォルダへ次の撮影を行う。
 
@@ -36,7 +37,7 @@ ros2 topic echo /panorama_rotate/status --qos-durability transient_local
 
 距離は撮影開始位置の共通視点からのメートル値で、`depth_m.npy` にfloat32で保存する。無効画素はNaN。
 上下の未観測領域は無効のまま残す。詳細と投影規則は `cat_panorama/README.md` を参照。
-画質・深度設定は `config/zed_panorama.yaml`、保存先は `output_dir:=...`、旋回速度の上限は `angular_speed:=0.18` で指定できる。24ステップの実機撮影が成功した速度上限を使用する。`minimum_angular_speed` の既定値は0とする。旋回タイムアウト時は指令、安全制御後の指令、車輪とVIOの角速度を表示する。
+画質・深度設定は `config/zed_panorama.yaml`、保存先は `output_dir:=...`、旋回速度の上限は `angular_speed:=0.18` で指定できる。24ステップの実機撮影が成功した速度上限を使用する。`minimum_angular_speed` の既定値は0とする。旋回タイムアウト時は指令、安全制御後の指令、車輪と選択したオドメトリの角速度を表示する。
 
 ## 保存地図を使ったナビゲーション
 
