@@ -21,7 +21,7 @@ source install/setup.bash
 ros2 launch experiment_cat navigation.launch.py
 ```
 
-VIO使用時は `cat_panorama/config/zed_shared.yaml` をZED設定として読み込みます。HD720で30 fps取得、RGB画像を20 fpsで配信します。深度マップの配信は無効で、VIO用の深度計算は有効です。`odom_source:=wheel` の場合は従来の `zed_sensors.yaml` を使います。`zed_config:=/path/to/config.yaml` で明示的に変更できます。パノラマ撮影launchとは同時に起動しないでください。
+VIO使用時は `cat_bringup/config/zed_vio.yaml` をZED設定として読み込みます。`odom_source:=wheel` の場合は `zed_sensors.yaml` を使います。`zed_config:=/path/to/config.yaml` で明示的に変更できます。撮影機能は既定で無効です。必要な場合だけ `cat_bringup` の `enable_panorama:=true` を指定します。
 
 既定では `slam:=false` とし、以下のファイルをパッケージ内の `map/` から読み込む。
 

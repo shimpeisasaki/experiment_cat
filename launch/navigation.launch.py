@@ -75,7 +75,6 @@ def waypoint_node(context):
 def generate_launch_description():
     share = FindPackageShare('experiment_cat')
     base_share = FindPackageShare('cat_bringup')
-    panorama_share = FindPackageShare('cat_panorama')
     nav2_share = FindPackageShare('nav2_bringup')
     params_file = LaunchConfiguration('params_file')
     robot_config = LaunchConfiguration('robot_config')
@@ -87,9 +86,11 @@ def generate_launch_description():
         DeclareLaunchArgument('gnss_serial', default_value=''),
         DeclareLaunchArgument('serial_number', default_value='10028118'),
         DeclareLaunchArgument('use_zed', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('enable_panorama', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('panorama_output_dir', default_value='~/ros2_ws/data/panorama'),
         DeclareLaunchArgument('odom_source', default_value='vio', choices=['vio', 'wheel']),
         DeclareLaunchArgument('zed_config', default_value=PythonExpression([
-            "'", panorama_share, "/config/zed_shared.yaml' if '",
+            "'", base_share, "/config/zed_vio.yaml' if '",
             LaunchConfiguration('odom_source'), "' == 'vio' else '",
             base_share, "/config/zed_sensors.yaml'"])),
         DeclareLaunchArgument('rviz', default_value='true', choices=['true', 'false']),
@@ -134,6 +135,8 @@ def generate_launch_description():
                 'zed_config': LaunchConfiguration('zed_config'),
                 'odom_source': LaunchConfiguration('odom_source'),
                 'use_zed': LaunchConfiguration('use_zed'),
+                'enable_panorama': LaunchConfiguration('enable_panorama'),
+                'panorama_output_dir': LaunchConfiguration('panorama_output_dir'),
                 'use_gnss': LaunchConfiguration('use_gnss'),
                 'gnss_serial': LaunchConfiguration('gnss_serial'),
                 'serial_port': LaunchConfiguration('serial_port'),

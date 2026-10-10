@@ -8,7 +8,6 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>cat_bringup</exec_depend>
-  <exec_depend>cat_panorama</exec_depend>
   <exec_depend>emcl2</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>launch</exec_depend>
