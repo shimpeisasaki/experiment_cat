@@ -7,7 +7,8 @@ install(DIRECTORY config launch rviz map
   DESTINATION share/${PROJECT_NAME}
 )
 install(FILES FLOWNAV.md DESTINATION share/${PROJECT_NAME})
+install(FILES GROUND_EVAL.md DESTINATION share/${PROJECT_NAME})
 
-install(PROGRAMS scripts/navigation_guard scripts/waypoint_route scripts/waypoint_editor scripts/flownav_follow_path DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/navigation_guard scripts/waypoint_route scripts/waypoint_editor scripts/flownav_follow_path scripts/d1_ground_eval DESTINATION lib/${PROJECT_NAME})
 install(FILES scripts/waypoint_io.py DESTINATION lib/${PROJECT_NAME})
 ament_package()
