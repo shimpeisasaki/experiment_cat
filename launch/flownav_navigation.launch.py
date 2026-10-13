@@ -48,7 +48,7 @@ def start(context):
                 image.verify()
         except Exception as exc:
             raise ValueError(f'Goal image cannot be read: {goal_image}') from exc
-    image_topic = f'/zed/zed_node/{lens}/color/rect/image/compressed'
+    image_topic = f'/zed/zed_node/{lens}/color/raw/image/compressed'
     lens_frame = f'zed_{lens}_camera_frame'
     share = Path(get_package_share_directory('experiment_cat'))
     base_share = Path(get_package_share_directory('cat_bringup'))

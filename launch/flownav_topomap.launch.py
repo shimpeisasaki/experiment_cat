@@ -19,7 +19,7 @@ def start(context):
     if not (repo / 'deployment/src/navigation/create_topomap.py').is_file():
         raise ValueError(f'FlowNav source missing: {repo}')
     base_share = Path(get_package_share_directory('cat_bringup'))
-    image_topic = f'/zed/zed_node/{lens}/color/rect/image/compressed'
+    image_topic = f'/zed/zed_node/{lens}/color/raw/image/compressed'
     env = {
         'FLOWNAV_IMAGE_TOPIC': image_topic,
         'PYTHONPATH': os.pathsep.join((str(repo / 'deployment/src'),

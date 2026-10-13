@@ -1,6 +1,6 @@
 # FlowNav on CAT
 
-FlowNav uses one rectified ZED Mini image (left or right). The ZED may still use
+FlowNav uses one unrectified ZED Mini image (left or right). The ZED may still use
 both eyes internally for VIO. Both driving modes use `/odom`, Nav2 `FollowPath`
 and Nav2 velocity smoothing; `hybrid` additionally uses `/scan` in the local
 costmap and Collision Monitor. Neither mode needs a 2D occupancy map.

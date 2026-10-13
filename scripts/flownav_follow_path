@@ -56,7 +56,7 @@ def camera_path(points, base_pose, offset, stamp):
 class FlowNavFollowPath(Node):
     def __init__(self):
         super().__init__('flownav_follow_path')
-        self.declare_parameter('image_topic', '/zed/zed_node/left/color/rect/image/compressed')
+        self.declare_parameter('image_topic', '/zed/zed_node/left/color/raw/image/compressed')
         self.declare_parameter('lens_frame', 'zed_left_camera_frame')
         self.declare_parameter('hybrid', False)
         self.declare_parameter('meters_per_unit', 0.10)
